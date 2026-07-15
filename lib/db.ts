@@ -1,0 +1,143 @@
+/**
+ * IndexedDB persistence (idb wrapper). Three stores:
+ * - voices:      Voice records including the reference sample blob
+ * - projects:    Project metadata + chunk list (WITHOUT audio blobs)
+ * - chunkAudio:  one record per generated chunk, written the instant a chunk
+ *                returns so a disconnect never loses completed work
+ */
+
+import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import type { Chunk, Project, Voice } from "./types";
+
+interface StoredChunkAudio {
+  key: string; // `${projectId}:${chunkId}`
+  projectId: string;
+  chunkId: string;
+  blob: Blob;
+  durationSec: number;
+  sampleRate: number;
+}
+
+interface VoiceForgeDB extends DBSchema {
+  voices: { key: string; value: Voice };
+  projects: { key: string; value: Project };
+  chunkAudio: {
+    key: string;
+    value: StoredChunkAudio;
+    indexes: { byProject: string };
+  };
+}
+
+let dbPromise: Promise<IDBPDatabase<VoiceForgeDB>> | null = null;
+
+function getDb(): Promise<IDBPDatabase<VoiceForgeDB>> {
+  if (!dbPromise) {
+    dbPromise = openDB<VoiceForgeDB>("voiceforge", 1, {
+      upgrade(db) {
+        db.createObjectStore("voices", { keyPath: "id" });
+        db.createObjectStore("projects", { keyPath: "id" });
+        const audio = db.createObjectStore("chunkAudio", { keyPath: "key" });
+        audio.createIndex("byProject", "projectId");
+      },
+    });
+  }
+  return dbPromise;
+}
+
+// ---------------------------------------------------------------------------
+// voices
+// ---------------------------------------------------------------------------
+
+export async function getAllVoices(): Promise<Voice[]> {
+  const db = await getDb();
+  const voices = await db.getAll("voices");
+  return voices.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function putVoice(voice: Voice): Promise<void> {
+  const db = await getDb();
+  await db.put("voices", voice);
+}
+
+export async function deleteVoice(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("voices", id);
+}
+
+// ---------------------------------------------------------------------------
+// projects
+// ---------------------------------------------------------------------------
+
+/** Persist the project. Audio blobs live in chunkAudio, so strip them here. */
+export async function putProject(project: Project): Promise<void> {
+  const db = await getDb();
+  const lean: Project = {
+    ...project,
+    chunks: project.chunks.map(({ audioBlob: _drop, ...rest }) => rest as Chunk),
+  };
+  await db.put("projects", lean);
+}
+
+export async function getFirstProject(): Promise<Project | undefined> {
+  const db = await getDb();
+  const all = await db.getAll("projects");
+  return all.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("projects", id);
+  await clearProjectAudio(id);
+}
+
+// ---------------------------------------------------------------------------
+// chunk audio
+// ---------------------------------------------------------------------------
+
+export async function saveChunkAudio(
+  projectId: string,
+  chunkId: string,
+  blob: Blob,
+  durationSec: number,
+  sampleRate: number
+): Promise<void> {
+  const db = await getDb();
+  await db.put("chunkAudio", {
+    key: `${projectId}:${chunkId}`,
+    projectId,
+    chunkId,
+    blob,
+    durationSec,
+    sampleRate,
+  });
+}
+
+export async function loadChunkAudio(
+  projectId: string,
+  chunkId: string
+): Promise<StoredChunkAudio | undefined> {
+  const db = await getDb();
+  return db.get("chunkAudio", `${projectId}:${chunkId}`);
+}
+
+/** All stored audio for a project, keyed by chunkId. */
+export async function loadAllChunkAudio(
+  projectId: string
+): Promise<Map<string, StoredChunkAudio>> {
+  const db = await getDb();
+  const rows = await db.getAllFromIndex("chunkAudio", "byProject", projectId);
+  return new Map(rows.map((r) => [r.chunkId, r]));
+}
+
+export async function deleteChunkAudio(projectId: string, chunkId: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("chunkAudio", `${projectId}:${chunkId}`);
+}
+
+export async function clearProjectAudio(projectId: string): Promise<void> {
+  const db = await getDb();
+  const keys = await db.getAllKeysFromIndex("chunkAudio", "byProject", projectId);
+  const tx = db.transaction("chunkAudio", "readwrite");
+  await Promise.all(keys.map((k) => tx.store.delete(k)));
+  await tx.done;
+}
