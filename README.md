@@ -108,6 +108,7 @@ When you're happy: **Export WAV** (best quality, drop into your video editor) or
 
 | What you see | What's wrong | Fix |
 |---|---|---|
+| Red pip "dependency resolver" error in Cell 1 | Chatterbox and Qwen3 pin different `transformers` versions | Expected — ignore it and keep running. Chatterbox always works; Qwen3 loads if it can. |
 | **Connect** does nothing | Colab tab closed, or the URL expired | Re-run Cell 3, paste the new URL |
 | `No GPU` error in Cell 2 | Runtime is on CPU | Runtime → Change runtime type → T4 GPU → **Run all again** |
 | Voice doesn't sound like you | Sample too short, noisy, or transcript missing/wrong | Re-record 20 clean seconds. Type the transcript exactly. |
