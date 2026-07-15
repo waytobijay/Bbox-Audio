@@ -76,7 +76,7 @@ A 20-minute video is roughly 2,800–3,000 words, which becomes 45–55 chunks.
 
 ### Step 6 — Test before you commit
 
-Hit **A/B compare a chunk** on any single chunk. It generates the same text on Chatterbox and Qwen3, side by side. Listen. Pick the one that sounds like you.
+Generate a single chunk first and listen before committing to a full run. (The default backend runs Chatterbox only — Qwen3-TTS's dependencies conflict with Chatterbox's and the two can't share one Colab environment. The **A/B compare** button enables itself automatically if a backend ever reports both models.)
 
 Then nudge **Expressiveness**: 0.4 is right for factual narration. Push it to 0.7+ only if you want drama.
 
@@ -108,7 +108,6 @@ When you're happy: **Export WAV** (best quality, drop into your video editor) or
 
 | What you see | What's wrong | Fix |
 |---|---|---|
-| Red pip "dependency resolver" error in Cell 1 | Chatterbox and Qwen3 pin different `transformers` versions | Expected — ignore it and keep running. Chatterbox always works; Qwen3 loads if it can. |
 | **Connect** does nothing | Colab tab closed, or the URL expired | Re-run Cell 3, paste the new URL |
 | `No GPU` error in Cell 2 | Runtime is on CPU | Runtime → Change runtime type → T4 GPU → **Run all again** |
 | Voice doesn't sound like you | Sample too short, noisy, or transcript missing/wrong | Re-record 20 clean seconds. Type the transcript exactly. |
