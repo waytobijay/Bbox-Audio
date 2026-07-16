@@ -183,6 +183,7 @@ export const useApp = create<AppState>((set, get) => {
       voice_id: remoteVoiceId,
       model,
       seed: chunk.seed,
+      language: params.language,
       exaggeration: params.exaggeration,
       cfg: params.cfg,
       temperature: params.temperature,
@@ -342,7 +343,12 @@ export const useApp = create<AppState>((set, get) => {
       set({
         hydrated: true,
         voices,
-        project: { ...project, voiceId: activeVoiceId ?? "" },
+        project: {
+          ...project,
+          voiceId: activeVoiceId ?? "",
+          // older saved projects predate newer params (e.g. language)
+          params: { ...DEFAULT_PARAMS, ...project.params },
+        },
         activeVoiceId,
         backendUrl,
       });
@@ -426,7 +432,7 @@ export const useApp = create<AppState>((set, get) => {
 
     setScript(raw: string) {
       if (get().queue.running) return; // editor is locked during a run
-      const drafts = chunkScript(raw);
+      const drafts = chunkScript(raw, undefined, get().project.params.language);
       set((s) => {
         const chunks = reconcileChunks(drafts, s.project.chunks, s.project.params.seed);
         // clean up stored audio for chunks that no longer exist
@@ -448,6 +454,10 @@ export const useApp = create<AppState>((set, get) => {
 
     setParams(patch: Partial<GenParams>) {
       set((s) => ({ project: { ...s.project, params: { ...s.project.params, ...patch } } }));
+      // language changes normalization + sentence rules — re-chunk the script
+      if (patch.language !== undefined && !get().queue.running) {
+        get().setScript(get().project.scriptRaw);
+      }
       schedulePersist();
     },
 
@@ -546,6 +556,7 @@ export const useApp = create<AppState>((set, get) => {
         voice_id: remoteId,
         model,
         seed,
+        language: params.language,
         exaggeration: params.exaggeration,
         cfg: params.cfg,
         temperature: params.temperature,

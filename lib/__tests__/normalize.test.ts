@@ -124,6 +124,18 @@ describe("stripMarkdown / normalizeText — markdown", () => {
   });
 });
 
+describe("normalizeText — non-English languages", () => {
+  it("skips English number/abbreviation expansion for Hindi", () => {
+    expect(normalizeText("कीमत $5 है और 15GB चाहिए।", "hi")).toBe(
+      "कीमत $5 है और 15GB चाहिए।"
+    );
+  });
+
+  it("still strips markdown for Hindi", () => {
+    expect(normalizeText("# शीर्षक — **मोटा** पाठ", "hi")).toBe("शीर्षक - मोटा पाठ");
+  });
+});
+
 describe("normalizeText — punctuation", () => {
   it("converts smart quotes and dashes to ASCII", () => {
     expect(normalizeText("“Hello,” she said — twice.")).toBe(

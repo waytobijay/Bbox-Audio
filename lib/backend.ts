@@ -34,6 +34,8 @@ export interface GeneratePayload {
   voice_id: string;
   model: ModelId;
   seed: number;
+  /** ISO 639-1 code — Chatterbox Multilingual language_id. */
+  language?: string;
   exaggeration?: number;
   cfg?: number;
   temperature?: number;

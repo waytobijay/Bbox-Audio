@@ -147,4 +147,26 @@ describe("chunkScript", () => {
     expect(chunkScript("")).toEqual([]);
     expect(chunkScript("  \n\n  ")).toEqual([]);
   });
+
+  it("splits Devanagari sentences on the danda", () => {
+    const sentences = splitSentences("यह पहला वाक्य है। यह दूसरा वाक्य है। तीसरा?");
+    expect(sentences).toEqual([
+      "यह पहला वाक्य है।",
+      "यह दूसरा वाक्य है।",
+      "तीसरा?",
+    ]);
+  });
+
+  it("chunks Hindi text and terminates chunks with the danda", () => {
+    const chunks = chunkScript(
+      "यह एक लम्बा हिन्दी अनुच्छेद है जो परीक्षण के लिए लिखा गया है। इसमें कई वाक्य हैं। अन्तिम वाक्य में विराम चिह्न नहीं है",
+      240,
+      "hi"
+    );
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const c of chunks) {
+      expect(c.text).toMatch(/[.!?।॥]$/);
+    }
+    expect(chunks[chunks.length - 1].text.endsWith("।")).toBe(true);
+  });
 });

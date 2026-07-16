@@ -27,7 +27,8 @@ import type { ChunkDraft } from "./types";
 const NON_TERMINAL = /(?:\b(?:Dr|Mr|Mrs|Ms|Prof|St|Mt|Ft|Rd|Ave|Inc|Ltd|Co|Capt|Sgt|Gen|Rev|Hon)|\b[A-Z])\.$/;
 
 export function splitSentences(text: string): string[] {
-  const parts = text.split(/(?<=[.!?])\s+/);
+  // । and ॥ are Devanagari sentence terminators (Hindi, Nepali, …)
+  const parts = text.split(/(?<=[.!?।॥])\s+/);
   const sentences: string[] = [];
   for (const part of parts) {
     const prev = sentences[sentences.length - 1];
@@ -111,9 +112,11 @@ export function splitLongSentence(sentence: string, max = MAX_CHARS): string[] {
 // ---------------------------------------------------------------------------
 
 /** Replace a dangling clause break with a full stop so the chunk reads cleanly. */
-function ensureTerminal(text: string): string {
+function ensureTerminal(text: string, language = "en"): string {
   const t = text.trim().replace(/[,;:\-]+$/, "");
-  return /[.!?]$/.test(t) ? t : `${t}.`;
+  if (/[.!?।॥]$/.test(t)) return t;
+  // Devanagari-script languages end sentences with the danda
+  return language === "hi" || language === "ne" ? `${t}।` : `${t}.`;
 }
 
 function packParagraph(paragraph: string, max: number): string[] {
@@ -169,7 +172,7 @@ function mergeTiny(drafts: ChunkDraft[], max: number): ChunkDraft[] {
  * greedy pack. `---` on its own line forces a chunk break (sentence-length
  * gap); a blank line is a paragraph break (longer gap).
  */
-export function chunkScript(raw: string, max = MAX_CHARS): ChunkDraft[] {
+export function chunkScript(raw: string, max = MAX_CHARS, language = "en"): ChunkDraft[] {
   const drafts: ChunkDraft[] = [];
   const text = raw.replace(/\r\n?/g, "\n");
 
@@ -179,7 +182,7 @@ export function chunkScript(raw: string, max = MAX_CHARS): ChunkDraft[] {
   for (const segment of segments) {
     const paragraphs = segment
       .split(/\n[ \t]*\n+/)
-      .map((p) => normalizeText(p))
+      .map((p) => normalizeText(p, language))
       .filter((p) => p.length > 0);
 
     for (const paragraph of paragraphs) {
@@ -189,7 +192,7 @@ export function chunkScript(raw: string, max = MAX_CHARS): ChunkDraft[] {
       const packed = packParagraph(flat, max);
       packed.forEach((chunkText, i) => {
         drafts.push({
-          text: ensureTerminal(chunkText),
+          text: ensureTerminal(chunkText, language),
           charCount: 0, // set below, after ensureTerminal
           isParagraphEnd: i === packed.length - 1,
         });

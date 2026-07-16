@@ -287,13 +287,19 @@ export function expandAbbreviations(input: string): string {
 /**
  * Normalize one paragraph of script text into speakable form.
  * Terminal punctuation is enforced per-chunk by the chunker, not here.
+ *
+ * Number and abbreviation expansion produce ENGLISH words, so they only run
+ * for English — for other languages (e.g. Hindi) digits are left for the
+ * model to read in-language.
  */
-export function normalizeText(input: string): string {
+export function normalizeText(input: string, language = "en"): string {
   let s = input;
   s = stripMarkdown(s);
   s = asciiPunctuation(s);
-  s = expandAbbreviations(s); // before numbers so "No. 5" → "number 5" → words
-  s = expandNumbers(s);
+  if (language.startsWith("en")) {
+    s = expandAbbreviations(s); // before numbers so "No. 5" → "number 5" → words
+    s = expandNumbers(s);
+  }
   // strip characters neither model pronounces
   s = s.replace(/[#*_`~<>{}[\]|\\^]/g, " ");
   // collapse whitespace

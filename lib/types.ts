@@ -56,6 +56,8 @@ export interface GenParams {
   // shared
   seed: number; // base seed; chunk seed = seed + chunk.index
   speed: number; // 0.8–1.2, default 1.0 (reserved — backend doesn't apply it yet)
+  /** ISO 639-1 code sent to the backend (Chatterbox Multilingual language_id). */
+  language: string;
   // chatterbox
   exaggeration: number; // 0.25–2.0, default 0.4 for narration
   cfg: number; // 0.2–1.0, default 0.5

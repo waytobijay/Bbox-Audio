@@ -1,7 +1,34 @@
 import type { GenParams, ModelId } from "./types";
 
-/** Narration language sent to Qwen3. Chatterbox is English-only. */
-export const LANGUAGE = "English";
+/**
+ * Languages supported by Chatterbox Multilingual (the backend model).
+ * No Nepali yet — Hindi is the closest supported option.
+ */
+export const LANGUAGES: Array<{ code: string; name: string }> = [
+  { code: "en", name: "English" },
+  { code: "hi", name: "Hindi — हिन्दी" },
+  { code: "ar", name: "Arabic" },
+  { code: "zh", name: "Chinese" },
+  { code: "da", name: "Danish" },
+  { code: "nl", name: "Dutch" },
+  { code: "fi", name: "Finnish" },
+  { code: "fr", name: "French" },
+  { code: "de", name: "German" },
+  { code: "el", name: "Greek" },
+  { code: "he", name: "Hebrew" },
+  { code: "it", name: "Italian" },
+  { code: "ja", name: "Japanese" },
+  { code: "ko", name: "Korean" },
+  { code: "ms", name: "Malay" },
+  { code: "no", name: "Norwegian" },
+  { code: "pl", name: "Polish" },
+  { code: "pt", name: "Portuguese" },
+  { code: "ru", name: "Russian" },
+  { code: "es", name: "Spanish" },
+  { code: "sw", name: "Swahili" },
+  { code: "sv", name: "Swedish" },
+  { code: "tr", name: "Turkish" },
+];
 
 /**
  * Hard ceiling per chunk. Load-bearing: both models drift, rush, and
@@ -39,6 +66,7 @@ export const SAMPLE_IDEAL_MAX_SEC = 20;
 export const DEFAULT_PARAMS: GenParams = {
   seed: 4242,
   speed: 1.0,
+  language: "en",
   // Chatterbox defaults tuned for factual narration — don't casually change.
   exaggeration: 0.4,
   cfg: 0.5,

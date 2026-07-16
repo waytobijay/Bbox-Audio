@@ -124,6 +124,7 @@ When you're happy: **Export WAV** (best quality, drop into your video editor) or
 - **The backend URL changes every session.** By design — it's a fresh tunnel each time.
 - **The Colab tab must stay open** while you generate.
 - **Your voice sample never leaves your control.** It goes from your browser to *your* Colab session. Not to Anthropic, not to Vercel, not to any TTS company.
+- **Languages:** the backend runs Chatterbox Multilingual — 23 languages including English and Hindi (pick one in Model controls). **Nepali is not supported by the model yet**; Hindi is the closest option. Number expansion ("15GB" → "fifteen gigabytes") only applies to English scripts; other languages keep digits for the model to read in-language.
 
 ---
 

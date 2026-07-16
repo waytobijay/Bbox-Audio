@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MODEL_INFO } from "@/lib/config";
+import { LANGUAGES, MODEL_INFO } from "@/lib/config";
 import { formatDuration } from "@/lib/audio";
 import { useApp } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -150,6 +150,27 @@ export function ModelControls() {
             </button>
           );
         })}
+      </div>
+
+      <div>
+        <label htmlFor="language" className="mb-1 block text-xs font-medium text-muted">
+          Language
+        </label>
+        <Select
+          id="language"
+          value={params.language}
+          disabled={running}
+          onChange={(e) => setParams({ language: e.target.value })}
+        >
+          {LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.name}
+            </option>
+          ))}
+        </Select>
+        <p className="mt-1 text-[11px] leading-snug text-muted/80">
+          No Nepali in the models yet — Hindi is the closest supported option.
+        </p>
       </div>
 
       {model === "chatterbox" ? (
