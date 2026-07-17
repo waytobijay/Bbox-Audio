@@ -108,6 +108,8 @@ When you're happy: **Export WAV** (best quality, drop into your video editor) or
 
 | What you see | What's wrong | Fix |
 |---|---|---|
+| `ValueError: numpy.dtype size changed... Expected 96... got 88` in Cell 2 | chatterbox-tts's compiled dependencies (transformers) don't match the base image's numpy ABI ([known chatterbox issue](https://huggingface.co/ResembleAI/chatterbox/discussions/19)) | Fixed in Cell 1, which now force-reinstalls a matching numpy automatically. Just run Cell 1 then Cell 2 in the same pass — no restart needed. |
+| `ModuleNotFoundError: No module named 'chatterbox'` in Cell 2 | Cell 1 was skipped, or the runtime/session was restarted (which can wipe installed packages, especially on Kaggle) and Cell 1 wasn't re-run afterward | Run Cell 1, then Cell 2, in the current session. Never skip Cell 1 after any restart. |
 | **Connect** does nothing | Colab tab closed, or the URL expired | Re-run Cell 3, paste the new URL |
 | `No GPU` error in Cell 2 | Runtime is on CPU | Runtime → Change runtime type → T4 GPU → **Run all again** |
 | Voice doesn't sound like you | Sample too short, noisy, or transcript missing/wrong | Re-record 20 clean seconds. Type the transcript exactly. |
