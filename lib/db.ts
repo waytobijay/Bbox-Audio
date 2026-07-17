@@ -18,6 +18,14 @@ interface StoredChunkAudio {
   sampleRate: number;
 }
 
+/** Talking-head assets: the source portrait and the last rendered video. */
+interface StoredVideoAsset {
+  key: "sourcePhoto" | "resultVideo";
+  blob: Blob;
+  mime: string;
+  durationSec?: number;
+}
+
 interface VoiceForgeDB extends DBSchema {
   voices: { key: string; value: Voice };
   projects: { key: string; value: Project };
@@ -26,18 +34,26 @@ interface VoiceForgeDB extends DBSchema {
     value: StoredChunkAudio;
     indexes: { byProject: string };
   };
+  videoAssets: { key: string; value: StoredVideoAsset };
 }
 
 let dbPromise: Promise<IDBPDatabase<VoiceForgeDB>> | null = null;
 
 function getDb(): Promise<IDBPDatabase<VoiceForgeDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<VoiceForgeDB>("voiceforge", 1, {
-      upgrade(db) {
-        db.createObjectStore("voices", { keyPath: "id" });
-        db.createObjectStore("projects", { keyPath: "id" });
-        const audio = db.createObjectStore("chunkAudio", { keyPath: "key" });
-        audio.createIndex("byProject", "projectId");
+    dbPromise = openDB<VoiceForgeDB>("voiceforge", 2, {
+      upgrade(db, oldVersion) {
+        // v1 — original stores. Guard each so re-runs and upgrades are safe.
+        if (oldVersion < 1) {
+          db.createObjectStore("voices", { keyPath: "id" });
+          db.createObjectStore("projects", { keyPath: "id" });
+          const audio = db.createObjectStore("chunkAudio", { keyPath: "key" });
+          audio.createIndex("byProject", "projectId");
+        }
+        // v2 — talking-head video assets
+        if (oldVersion < 2) {
+          db.createObjectStore("videoAssets", { keyPath: "key" });
+        }
       },
     });
   }
@@ -140,4 +156,32 @@ export async function clearProjectAudio(projectId: string): Promise<void> {
   const tx = db.transaction("chunkAudio", "readwrite");
   await Promise.all(keys.map((k) => tx.store.delete(k)));
   await tx.done;
+}
+
+// ---------------------------------------------------------------------------
+// video assets (source photo + last rendered video)
+// ---------------------------------------------------------------------------
+
+export async function saveVideoAsset(
+  key: "sourcePhoto" | "resultVideo",
+  blob: Blob,
+  durationSec?: number
+): Promise<void> {
+  const db = await getDb();
+  await db.put("videoAssets", { key, blob, mime: blob.type, durationSec });
+}
+
+export async function loadVideoAsset(
+  key: "sourcePhoto" | "resultVideo"
+): Promise<{ blob: Blob; durationSec?: number } | undefined> {
+  const db = await getDb();
+  const row = await db.get("videoAssets", key);
+  return row ? { blob: row.blob, durationSec: row.durationSec } : undefined;
+}
+
+export async function deleteVideoAsset(
+  key: "sourcePhoto" | "resultVideo"
+): Promise<void> {
+  const db = await getDb();
+  await db.delete("videoAssets", key);
 }
