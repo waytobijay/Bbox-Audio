@@ -1,14 +1,18 @@
 "use client";
 
+import { useApp } from "@/lib/store";
 import { ChunkList } from "../ChunkList";
+import { SpeechConnectionForm } from "../Connections";
 import { ExportBar } from "../ExportBar";
 import { ModelControls } from "../ModelControls";
 import { ScriptEditor } from "../ScriptEditor";
 import { VoiceLab } from "../VoiceLab";
 import { Card, CardHeader } from "../ui/Card";
-import { IconMic, IconScript, IconSettings, IconSparkle } from "../ui/Icons";
+import { IconMic, IconScript, IconSettings, IconSparkle, IconWave } from "../ui/Icons";
 
 export function SpeechView() {
+  const connected = useApp((s) => s.backend.connected);
+
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:py-8">
       <header className="mb-6">
@@ -44,6 +48,20 @@ export function SpeechView() {
 
         {/* settings rail */}
         <aside className="flex min-w-0 flex-col gap-4">
+          {/* Mirrors the Video view: the connection card sits at the top of the
+              rail while the GPU is offline, and gets out of the way once live. */}
+          {!connected ? (
+            <Card>
+              <CardHeader
+                accent="audio"
+                icon={<IconWave className="h-[18px] w-[18px]" />}
+                title="Connect the speech GPU"
+                description="Run the notebook on Colab with a T4 GPU, then paste the URL it prints."
+              />
+              <SpeechConnectionForm />
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader
               accent="audio"
