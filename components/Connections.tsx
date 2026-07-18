@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { HEALTH_POLL_MS } from "@/lib/config";
 import { useApp } from "@/lib/store";
 import { useVideo } from "@/lib/videoStore";
-import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
 import { FieldLabel } from "./ui/Card";
@@ -115,26 +114,92 @@ export function VideoConnectionForm() {
   );
 }
 
-export function ConnectionBadges({ onOpen }: { onOpen(): void }) {
-  const speech = useApp((s) => s.backend.connected);
-  const speechBusy = useApp((s) => s.connecting);
-  const video = useVideo((s) => s.backend.connected);
+/**
+ * Explicit, unmissable connection state. The words "Live" / "Offline" carry
+ * the meaning — colour and the filled/hollow dot only reinforce it.
+ */
+export function EngineStatus({
+  kind,
+  size = "md",
+}: {
+  kind: "speech" | "video";
+  size?: "sm" | "md";
+}) {
+  const speechOn = useApp((s) => s.backend.connected);
+  const speechGpu = useApp((s) => s.backend.gpu);
+  const videoOn = useVideo((s) => s.backend.connected);
+  const videoGpu = useVideo((s) => s.backend.gpu);
 
+  const on = kind === "speech" ? speechOn : videoOn;
+  const gpu = kind === "speech" ? speechGpu : videoGpu;
+  const accent = kind === "speech" ? "audio" : "video";
+
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-lg border font-medium ${
+        size === "sm" ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-[12px]"
+      } ${
+        on
+          ? accent === "audio"
+            ? "border-audio/40 bg-audioSoft text-audio"
+            : "border-video/40 bg-videoSoft text-video"
+          : "border-line bg-surface2 text-muted"
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-2 w-2 rounded-full ${
+          on
+            ? accent === "audio"
+              ? "bg-audio"
+              : "bg-video"
+            : "border border-faint bg-transparent"
+        }`}
+      />
+      <span>{kind === "speech" ? "Speech" : "Video"}</span>
+      <span className={on ? "" : "text-faint"}>{on ? "Live" : "Offline"}</span>
+      {on && gpu ? (
+        <span className="hidden font-mono text-[10.5px] opacity-70 sm:inline">{gpu}</span>
+      ) : null}
+    </span>
+  );
+}
+
+export function ConnectionBadges({ onOpen }: { onOpen(): void }) {
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="flex items-center gap-2 rounded-xl border border-line bg-surface2 px-2.5 py-1.5 transition-colors hover:border-lineStrong"
+      className="flex items-center gap-2 rounded-xl border border-line bg-surface/80 p-1.5 transition-colors hover:border-lineStrong"
       aria-label="Manage GPU connections"
+      title="Manage GPU connections"
     >
-      <Badge tone={speech ? "audio" : "neutral"} dot pulse={speechBusy}>
-        Speech
-      </Badge>
-      <Badge tone={video ? "video" : "neutral"} dot>
-        Video
-      </Badge>
-      <IconLink className="h-3.5 w-3.5 text-faint" />
+      <EngineStatus kind="speech" size="sm" />
+      <EngineStatus kind="video" size="sm" />
+      <IconLink className="mr-0.5 h-3.5 w-3.5 text-faint" />
     </button>
+  );
+}
+
+/** Status + a way to fix it, for use in a page header. */
+export function EngineStatusBar({ kind }: { kind: "speech" | "video" }) {
+  const [open, setOpen] = useState(false);
+  const speechOn = useApp((s) => s.backend.connected);
+  const videoOn = useVideo((s) => s.backend.connected);
+  const on = kind === "speech" ? speechOn : videoOn;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <EngineStatus kind={kind} />
+        {!on ? (
+          <Button size="sm" variant={kind === "video" ? "video" : "primary"} onClick={() => setOpen(true)}>
+            Connect GPU
+          </Button>
+        ) : null}
+      </div>
+      <ConnectionsDialog open={open} onClose={() => setOpen(false)} />
+    </>
   );
 }
 

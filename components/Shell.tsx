@@ -9,10 +9,10 @@ import { IconHome, IconVideo, IconWave } from "./ui/Icons";
 
 export type ViewId = "home" | "speech" | "video";
 
-const NAV: Array<{ id: ViewId; label: string; Icon: typeof IconHome }> = [
-  { id: "home", label: "Home", Icon: IconHome },
-  { id: "speech", label: "Text to Speech", Icon: IconWave },
-  { id: "video", label: "AI Video", Icon: IconVideo },
+const NAV: Array<{ id: ViewId; label: string; short: string; Icon: typeof IconHome }> = [
+  { id: "home", label: "Home", short: "Home", Icon: IconHome },
+  { id: "speech", label: "Text to Speech", short: "Speech", Icon: IconWave },
+  { id: "video", label: "AI Video", short: "Video", Icon: IconVideo },
 ];
 
 function NavItem({
@@ -36,10 +36,17 @@ function NavItem({
       type="button"
       onClick={() => onSelect(id)}
       aria-current={active ? "page" : undefined}
-      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
-        active ? "bg-surface2 text-ink" : "text-muted hover:bg-surface2/60 hover:text-ink"
+      className={`group relative flex w-full items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-3 text-[13.5px] font-medium transition-colors duration-150 ${
+        active ? "bg-surface2 text-ink" : "text-muted hover:bg-surface2/50 hover:text-ink"
       }`}
     >
+      {/* active marker — a shape, so the state isn't carried by colour alone */}
+      <span
+        aria-hidden
+        className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full transition-all ${
+          active ? (id === "video" ? "bg-video" : "bg-audio") : "bg-transparent"
+        }`}
+      />
       <Icon className={`h-[18px] w-[18px] ${active ? accent : "text-faint group-hover:text-muted"}`} />
       <span className="flex-1 text-left">{label}</span>
       {badge}
@@ -75,17 +82,21 @@ export function Shell({
   return (
     <div className="flex min-h-screen flex-col lg:h-screen lg:flex-row">
       {/* ---------- sidebar (desktop) ---------- */}
-      <aside className="relative hidden w-[248px] shrink-0 flex-col border-r border-line bg-surface/60 px-4 py-5 backdrop-blur lg:flex">
-        <div className="mb-7 flex items-center gap-2.5 px-1">
-          <span className="grid h-8 w-8 place-items-center rounded-xl bg-audio text-[#06231A]">
-            <IconWave className="h-[18px] w-[18px]" />
+      <aside className="relative hidden w-[244px] shrink-0 flex-col border-r border-line bg-surface/50 lg:flex">
+        {/* brand — sits on its own bar so it lines up with the top bar */}
+        <div className="flex h-[61px] items-center gap-2.5 border-b border-line px-5">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-audio text-[#06231A]">
+            <IconWave className="h-4 w-4" />
           </span>
           <span className="font-display text-[15px] font-bold tracking-tight text-ink">
             VoiceForge
           </span>
         </div>
 
-        <nav className="flex flex-col gap-1" aria-label="Main">
+        <nav className="flex flex-col gap-0.5 px-3 py-4" aria-label="Main">
+          <p className="mb-1 px-3 text-[10.5px] font-semibold uppercase tracking-[0.13em] text-faint">
+            Workspace
+          </p>
           {NAV.map((n) => (
             <NavItem
               key={n.id}
@@ -97,17 +108,14 @@ export function Shell({
           ))}
         </nav>
 
-        <div className="mt-auto space-y-3 pt-6">
-          <p className="px-1 text-[11px] leading-relaxed text-faint">
-            Runs on your own free Colab GPU. Nothing leaves your browser except to your session.
-          </p>
-        </div>
+        <p className="mt-auto border-t border-line px-5 py-4 text-[11px] leading-relaxed text-faint">
+          Runs on your own free Colab GPU. Nothing leaves your browser except to your session.
+        </p>
       </aside>
 
       {/* ---------- main ---------- */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* top bar */}
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur-xl sm:px-6">
+        <header className="sticky top-0 z-30 flex h-[61px] items-center gap-3 border-b border-line bg-bg/85 px-4 backdrop-blur-xl sm:px-6">
           <span className="flex items-center gap-2 lg:hidden">
             <span className="grid h-7 w-7 place-items-center rounded-lg bg-audio text-[#06231A]">
               <IconWave className="h-4 w-4" />
@@ -122,9 +130,9 @@ export function Shell({
         {/* mobile nav */}
         <nav
           aria-label="Main"
-          className="sticky top-[57px] z-20 flex gap-1 border-b border-line bg-bg/90 px-3 py-2 backdrop-blur lg:hidden"
+          className="sticky top-[61px] z-20 flex gap-1 border-b border-line bg-bg/90 px-3 py-2 backdrop-blur lg:hidden"
         >
-          {NAV.map(({ id, label, Icon }) => (
+          {NAV.map(({ id, short, Icon }) => (
             <button
               key={id}
               type="button"
@@ -135,7 +143,7 @@ export function Shell({
               }`}
             >
               <Icon className="h-4 w-4" />
-              <span className="truncate">{id === "speech" ? "Speech" : id === "video" ? "Video" : "Home"}</span>
+              <span className="truncate">{short}</span>
             </button>
           ))}
         </nav>

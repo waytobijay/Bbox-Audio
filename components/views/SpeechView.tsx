@@ -2,7 +2,7 @@
 
 import { useApp } from "@/lib/store";
 import { ChunkList } from "../ChunkList";
-import { SpeechConnectionForm } from "../Connections";
+import { EngineStatusBar, SpeechConnectionForm } from "../Connections";
 import { ExportBar } from "../ExportBar";
 import { ModelControls } from "../ModelControls";
 import { ScriptEditor } from "../ScriptEditor";
@@ -15,11 +15,16 @@ export function SpeechView() {
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Text to Speech</h1>
-        <p className="mt-1 text-sm text-muted">
-          Clone a voice, paste a script, and generate narration chunk by chunk.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
+            Text to Speech
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Clone a voice, paste a script, and generate narration chunk by chunk.
+          </p>
+        </div>
+        <EngineStatusBar kind="speech" />
       </header>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">

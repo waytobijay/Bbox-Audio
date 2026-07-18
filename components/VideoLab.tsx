@@ -348,41 +348,49 @@ export function VideoLab() {
               </span>
             </label>
 
-            <label
-              className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition-colors ${
+            {/* The radio and the file picker must be SEPARATE labels — a single
+                label only ever activates its first control, which silently made
+                uploading impossible. */}
+            <div
+              className={`rounded-xl border px-3.5 py-3 transition-colors ${
                 audioSource === "upload"
                   ? "border-video/40 bg-videoSoft"
-                  : "border-line bg-surface2 hover:border-lineStrong"
+                  : "border-line bg-surface2"
               }`}
             >
-              <input
-                type="radio"
-                name="audiosrc"
-                checked={audioSource === "upload"}
-                onChange={() => setAudioSource("upload")}
-                className="h-3.5 w-3.5 accent-[#7C9BFF]"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium text-ink">Upload audio</span>
-                <span className="block truncate font-mono text-[11px] text-faint">
-                  {uploadedAudio ? uploadedAudio.name : "wav, mp3 or m4a"}
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="radio"
+                  name="audiosrc"
+                  checked={audioSource === "upload"}
+                  onChange={() => setAudioSource("upload")}
+                  className="h-3.5 w-3.5 accent-[#7C9BFF]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium text-ink">Upload audio</span>
+                  <span className="block truncate font-mono text-[11px] text-faint">
+                    {uploadedAudio ? uploadedAudio.name : "wav, mp3 or m4a"}
+                  </span>
                 </span>
-              </span>
-              <input
-                type="file"
-                accept="audio/*,.wav,.mp3,.m4a"
-                className="visually-hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) {
-                    setUploadedAudio({ blob: f, name: f.name });
-                    setAudioSource("upload");
-                  }
-                  e.target.value = "";
-                }}
-              />
-              <IconUpload className="h-4 w-4 shrink-0 text-faint" />
-            </label>
+              </label>
+              <label className="mt-2.5 flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-line bg-surface3 text-[13px] font-medium text-ink transition-colors hover:border-lineStrong">
+                <IconUpload className="h-4 w-4" />
+                {uploadedAudio ? "Choose a different file" : "Choose file"}
+                <input
+                  type="file"
+                  accept="audio/*,.wav,.mp3,.m4a"
+                  className="visually-hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      setUploadedAudio({ blob: f, name: f.name });
+                      setAudioSource("upload");
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
           </div>
 
           {tooLongForSadTalker ? (
