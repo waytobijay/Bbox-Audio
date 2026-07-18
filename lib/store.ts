@@ -311,47 +311,64 @@ export const useApp = create<AppState>((set, get) => {
     announcement: "",
 
     async hydrate() {
-      const voices = await db.getAllVoices();
-      let project = await db.getFirstProject();
-      if (!project) {
-        project = createDefaultProject();
-      } else {
-        const audio = await db.loadAllChunkAudio(project.id);
-        project = {
-          ...project,
-          chunks: project.chunks.map((c) => {
-            const stored = audio.get(c.id);
-            if (c.status === "done" && stored) {
-              return {
-                ...c,
-                audioBlob: stored.blob,
-                durationSec: stored.durationSec,
-                sampleRate: stored.sampleRate,
-              };
-            }
-            if (c.status === "done" || c.status === "generating") {
-              return { ...c, status: "pending" as const, audioBlob: undefined };
-            }
-            return c;
-          }),
-        };
-      }
+      // The backend URL lives in localStorage, so it survives even if
+      // IndexedDB is unavailable — read it first, outside the try.
       const backendUrl =
         typeof window !== "undefined" ? localStorage.getItem(LS_BACKEND_URL) ?? "" : "";
-      const activeVoiceId =
-        voices.find((v) => v.id === project!.voiceId)?.id ?? voices[0]?.id ?? null;
-      set({
-        hydrated: true,
-        voices,
-        project: {
-          ...project,
-          voiceId: activeVoiceId ?? "",
-          // older saved projects predate newer params (e.g. language)
-          params: { ...DEFAULT_PARAMS, ...project.params },
-        },
-        activeVoiceId,
-        backendUrl,
-      });
+
+      // Storage must NEVER be able to block startup. If IndexedDB is slow,
+      // blocked by another tab mid-upgrade, or disabled outright, we come up
+      // with an empty session instead of leaving the user staring at
+      // "Loading your session…" forever.
+      try {
+        const voices = await db.getAllVoices();
+        let project = await db.getFirstProject();
+        if (!project) {
+          project = createDefaultProject();
+        } else {
+          const audio = await db.loadAllChunkAudio(project.id);
+          project = {
+            ...project,
+            chunks: project.chunks.map((c) => {
+              const stored = audio.get(c.id);
+              if (c.status === "done" && stored) {
+                return {
+                  ...c,
+                  audioBlob: stored.blob,
+                  durationSec: stored.durationSec,
+                  sampleRate: stored.sampleRate,
+                };
+              }
+              if (c.status === "done" || c.status === "generating") {
+                return { ...c, status: "pending" as const, audioBlob: undefined };
+              }
+              return c;
+            }),
+          };
+        }
+        const activeVoiceId =
+          voices.find((v) => v.id === project!.voiceId)?.id ?? voices[0]?.id ?? null;
+        set({
+          hydrated: true,
+          voices,
+          project: {
+            ...project,
+            voiceId: activeVoiceId ?? "",
+            // older saved projects predate newer params (e.g. language)
+            params: { ...DEFAULT_PARAMS, ...project.params },
+          },
+          activeVoiceId,
+          backendUrl,
+        });
+      } catch (e) {
+        console.warn("[voiceforge] starting without saved data:", e);
+        set({ hydrated: true, backendUrl });
+        toast(
+          "Couldn't load saved data. Close any other VoiceForge tabs and reload.",
+          "error"
+        );
+      }
+
       if (backendUrl) void get().connect({ silent: true });
     },
 

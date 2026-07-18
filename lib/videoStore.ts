@@ -86,16 +86,27 @@ export const useVideo = create<VideoState>((set, get) => {
     async hydrate() {
       const url =
         typeof window !== "undefined" ? localStorage.getItem(LS_VIDEO_URL) ?? "" : "";
-      const photo = await db.loadVideoAsset("sourcePhoto");
-      const result = await db.loadVideoAsset("resultVideo");
-      set({
-        hydrated: true,
-        videoBackendUrl: url,
-        photoBlob: photo?.blob ?? null,
-        job: result
-          ? { ...IDLE_JOB, status: "done", videoBlob: result.blob, durationSec: result.durationSec }
-          : { ...IDLE_JOB },
-      });
+      // Same rule as the speech store: storage can never block startup.
+      try {
+        const photo = await db.loadVideoAsset("sourcePhoto");
+        const result = await db.loadVideoAsset("resultVideo");
+        set({
+          hydrated: true,
+          videoBackendUrl: url,
+          photoBlob: photo?.blob ?? null,
+          job: result
+            ? {
+                ...IDLE_JOB,
+                status: "done",
+                videoBlob: result.blob,
+                durationSec: result.durationSec,
+              }
+            : { ...IDLE_JOB },
+        });
+      } catch (e) {
+        console.warn("[voiceforge] video assets unavailable:", e);
+        set({ hydrated: true, videoBackendUrl: url });
+      }
       if (url) void get().connect({ silent: true });
     },
 

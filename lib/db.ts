@@ -38,10 +38,19 @@ interface VoiceForgeDB extends DBSchema {
 }
 
 let dbPromise: Promise<IDBPDatabase<VoiceForgeDB>> | null = null;
+let openConn: IDBPDatabase<VoiceForgeDB> | null = null;
+
+/**
+ * Opening must never hang the app. A version upgrade is BLOCKED for as long as
+ * another tab still holds the old version open — without a timeout that promise
+ * simply never settles, and every caller awaiting it waits forever. Storage is
+ * a nice-to-have; the UI is not allowed to depend on it starting up.
+ */
+const OPEN_TIMEOUT_MS = 4000;
 
 function getDb(): Promise<IDBPDatabase<VoiceForgeDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<VoiceForgeDB>("voiceforge", 2, {
+    const open = openDB<VoiceForgeDB>("voiceforge", 2, {
       upgrade(db, oldVersion) {
         // v1 — original stores. Guard each so re-runs and upgrades are safe.
         if (oldVersion < 1) {
@@ -55,6 +64,42 @@ function getDb(): Promise<IDBPDatabase<VoiceForgeDB>> {
           db.createObjectStore("videoAssets", { keyPath: "key" });
         }
       },
+      blocked() {
+        console.warn(
+          "[voiceforge] IndexedDB upgrade blocked — close other VoiceForge tabs."
+        );
+      },
+      // Another tab is trying to upgrade: step aside so it isn't blocked too.
+      blocking() {
+        openConn?.close();
+        openConn = null;
+        dbPromise = null;
+      },
+      terminated() {
+        openConn = null;
+        dbPromise = null;
+      },
+    }).then((db) => {
+      openConn = db;
+      return db;
+    });
+
+    dbPromise = Promise.race([
+      open,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "IndexedDB did not open in time — another tab may be holding an older version open."
+              )
+            ),
+          OPEN_TIMEOUT_MS
+        )
+      ),
+    ]).catch((err) => {
+      dbPromise = null; // let a later call retry
+      throw err;
     });
   }
   return dbPromise;
