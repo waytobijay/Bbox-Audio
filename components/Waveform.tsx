@@ -64,17 +64,19 @@ export function Waveform({ pcm, trim, onTrimChange, height = 96 }: WaveformProps
         if (samples[i] > max) max = samples[i];
       }
       const inTrim = x >= startX && x <= endX;
-      ctx.fillStyle = inTrim ? "#E4E6ED" : "rgba(124,130,153,0.35)";
-      const y0 = mid + min * (mid - 2);
-      const y1 = mid + max * (mid - 2);
+      ctx.fillStyle = inTrim ? "#4ADE9F" : "rgba(105,113,131,0.30)";
+      const y0 = mid + min * (mid - 3);
+      const y1 = mid + max * (mid - 3);
       ctx.fillRect(x, y1, 1, Math.max(1, y0 - y1));
     }
 
-    // trim handles
+    // trim handles — a hairline plus a rounded grip
     for (const x of [startX, endX]) {
-      ctx.fillStyle = "#5EE6A8";
+      ctx.fillStyle = "#E9EBF1";
       ctx.fillRect(Math.round(x) - 1, 0, 2, height);
-      ctx.fillRect(Math.round(x) - 4, mid - 10, 8, 20);
+      ctx.beginPath();
+      ctx.roundRect(Math.round(x) - 3.5, mid - 11, 7, 22, 3.5);
+      ctx.fill();
     }
   }, [pcm, trim, width, height, durationSec]);
 
@@ -142,7 +144,7 @@ export function Waveform({ pcm, trim, onTrimChange, height = 96 }: WaveformProps
     <div>
       <div
         ref={wrapRef}
-        className="relative w-full cursor-ew-resize touch-none rounded-md border border-rule bg-desk"
+        className="relative w-full cursor-ew-resize touch-none rounded-xl border border-line bg-surface2"
         style={{ height }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -175,8 +177,10 @@ export function Waveform({ pcm, trim, onTrimChange, height = 96 }: WaveformProps
           style={{ left: `${(trim.end / durationSec) * 100}%` }}
         />
       </div>
-      <p className="mt-1 font-mono text-[11px] tabular-nums text-muted">
-        {trim.start.toFixed(1)}s – {trim.end.toFixed(1)}s of {durationSec.toFixed(1)}s
+      <p className="mt-2 font-mono text-[11px] tabular-nums text-faint">
+        {trim.start.toFixed(1)}s – {trim.end.toFixed(1)}s
+        <span className="text-line"> / </span>
+        {durationSec.toFixed(1)}s
       </p>
     </div>
   );

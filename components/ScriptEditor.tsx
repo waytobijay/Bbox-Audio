@@ -4,18 +4,15 @@ import { useMemo, useState } from "react";
 import { WORDS_PER_MINUTE } from "@/lib/config";
 import { useApp } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { IconUpload } from "./ui/Icons";
 import { Textarea } from "./ui/Input";
 
-function Stats({ raw, chunkCount }: { raw: string; chunkCount: number }) {
-  const chars = raw.length;
-  const words = raw.trim() ? raw.trim().split(/\s+/).length : 0;
-  const minutes = words / WORDS_PER_MINUTE;
+function Stat({ value, label }: { value: string; label: string }) {
   return (
-    <p className="font-mono text-[11px] tabular-nums text-muted">
-      {chars.toLocaleString()} chars · {words.toLocaleString()} words · ~
-      {minutes < 1 ? `${Math.ceil(minutes * 60)} sec` : `${Math.round(minutes)} min`} spoken ·{" "}
-      {chunkCount} chunks
-    </p>
+    <div className="flex flex-col">
+      <span className="font-mono text-[13px] font-medium tabular-nums text-ink">{value}</span>
+      <span className="text-[11px] text-faint">{label}</span>
+    </div>
   );
 }
 
@@ -27,12 +24,11 @@ export function ScriptEditor() {
   const [showNormalized, setShowNormalized] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
+  const words = scriptRaw.trim() ? scriptRaw.trim().split(/\s+/).length : 0;
+  const minutes = words / WORDS_PER_MINUTE;
+
   const normalizedPreview = useMemo(
-    () =>
-      chunks
-        .map((c) => c.text + (c.isParagraphEnd ? "\n" : ""))
-        .join("\n")
-        .trim(),
+    () => chunks.map((c) => c.text + (c.isParagraphEnd ? "\n" : "")).join("\n").trim(),
     [chunks]
   );
 
@@ -50,10 +46,10 @@ export function ScriptEditor() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div
-        className={`relative flex min-h-[240px] flex-1 flex-col ${
-          dragOver ? "outline-dashed outline-2 outline-ready/60" : ""
+        className={`relative rounded-xl transition-shadow ${
+          dragOver ? "shadow-glow" : ""
         }`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -64,65 +60,83 @@ export function ScriptEditor() {
       >
         <Textarea
           aria-label="Narration script"
-          className="min-h-[240px] flex-1 font-body leading-relaxed"
+          className="min-h-[240px] text-[14.5px] lg:min-h-[300px]"
           placeholder={
-            "Paste your narration script. It'll be split into chunks automatically.\n\n" +
-            "Blank line = paragraph break = longer pause.\n" +
-            "A line with just --- forces a chunk break."
+            "Paste your narration script here…\n\n" +
+            "Blank line = paragraph break = a longer pause.\n" +
+            "A line containing only --- forces a chunk break."
           }
           value={scriptRaw}
           onChange={(e) => setScript(e.target.value)}
           disabled={running}
         />
-        {running ? (
-          <p className="mt-1 text-[11px] text-muted">
-            Script is locked while the queue is running.
-          </p>
+        {dragOver ? (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-xl bg-bg/80">
+            <span className="flex items-center gap-2 text-sm font-medium text-audio">
+              <IconUpload className="h-4 w-4" /> Drop your .txt or .md file
+            </span>
+          </div>
         ) : null}
       </div>
 
-      <Stats raw={scriptRaw} chunkCount={chunks.length} />
+      {running ? (
+        <p className="text-[12px] text-faint">The script is locked while generation is running.</p>
+      ) : null}
 
+      {/* stats */}
+      <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-xl border border-line bg-surface2/50 px-4 py-3">
+        <Stat value={scriptRaw.length.toLocaleString()} label="characters" />
+        <Stat value={words.toLocaleString()} label="words" />
+        <Stat
+          value={minutes < 1 ? `${Math.ceil(minutes * 60)}s` : `${Math.round(minutes)}m`}
+          label="spoken"
+        />
+        <Stat value={String(chunks.length)} label="chunks" />
+        {chunks.length > 0 ? (
+          <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-[12px] text-muted">
+            <input
+              type="checkbox"
+              checked={showNormalized}
+              onChange={(e) => setShowNormalized(e.target.checked)}
+              className="h-3.5 w-3.5 rounded accent-[#4ADE9F]"
+            />
+            Show pronunciation
+          </label>
+        ) : null}
+      </div>
+
+      {/* chunk preview */}
       {chunks.length > 0 ? (
-        <div className="min-h-0 rounded-md border border-rule">
-          <div className="flex items-center justify-between border-b border-rule px-3 py-2">
-            <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted">
-              Chunk preview
+        <div className="overflow-hidden rounded-xl border border-line">
+          <div className="border-b border-line bg-surface2/60 px-4 py-2.5">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">
+              {showNormalized ? "How it will be pronounced" : "Chunk preview"}
             </h3>
-            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted">
-              <input
-                type="checkbox"
-                checked={showNormalized}
-                onChange={(e) => setShowNormalized(e.target.checked)}
-                className="accent-[#5EE6A8]"
-              />
-              Show normalized
-            </label>
           </div>
           {showNormalized ? (
-            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap px-3 py-2 font-body text-xs leading-relaxed text-text">
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap px-4 py-3 font-body text-[13px] leading-relaxed text-muted">
               {normalizedPreview}
             </pre>
           ) : (
-            <ol className="max-h-64 overflow-y-auto py-1">
+            <ol className="max-h-64 overflow-y-auto">
               {chunks.map((c) => (
                 <li
                   key={c.id}
-                  className={`flex items-baseline gap-2 px-3 py-1 text-xs ${
-                    c.isParagraphEnd ? "mb-1 border-b border-rule/60 pb-2" : ""
+                  className={`flex items-baseline gap-3 border-b border-line/60 px-4 py-2 text-[13px] last:border-0 ${
+                    c.isParagraphEnd ? "bg-surface2/30" : ""
                   }`}
                 >
-                  <span className="shrink-0 font-mono tabular-nums text-muted">
+                  <span className="w-5 shrink-0 font-mono text-[11px] tabular-nums text-faint">
                     {String(c.index + 1).padStart(2, "0")}
                   </span>
                   <span
-                    className={`shrink-0 font-mono tabular-nums ${
-                      c.charCount > 240 ? "text-signal" : "text-muted/70"
+                    className={`w-11 shrink-0 font-mono text-[11px] tabular-nums ${
+                      c.charCount > 240 ? "text-live" : "text-faint"
                     }`}
                   >
                     {c.charCount}c
                   </span>
-                  <span className="truncate text-text/80">{c.text}</span>
+                  <span className="truncate text-muted">{c.text}</span>
                 </li>
               ))}
             </ol>

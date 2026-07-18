@@ -7,6 +7,7 @@ import {
   computeSrtEntries,
   encodeMp3,
   encodeWavPcm16,
+  formatDuration,
   peakNormalize,
   stitchChunks,
   wavBlobToPcm,
@@ -17,6 +18,8 @@ import { useApp } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import type { Chunk } from "@/lib/types";
 import { Button } from "./ui/Button";
+import { Card, CardHeader, FieldLabel } from "./ui/Card";
+import { IconDownload } from "./ui/Icons";
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -46,6 +49,7 @@ export function ExportBar() {
       c.status === "done" && !!c.audioBlob && c.durationSec !== undefined
   );
   const partial = done.length > 0 && done.length < chunks.length;
+  const totalSec = done.reduce((a, c) => a + c.durationSec, 0);
   const base = slug(projectName);
 
   async function stitched() {
@@ -69,16 +73,8 @@ export function ExportBar() {
     }
   }
 
-  const exportWav = () =>
-    run("wav", async () => {
-      download(encodeWavPcm16(await stitched()), `${base}.wav`);
-    });
-
-  const exportMp3 = () =>
-    run("mp3", async () => {
-      download(encodeMp3(await stitched()), `${base}.mp3`);
-    });
-
+  const exportWav = () => run("wav", async () => download(encodeWavPcm16(await stitched()), `${base}.wav`));
+  const exportMp3 = () => run("mp3", async () => download(encodeMp3(await stitched()), `${base}.mp3`));
   const exportZip = () =>
     run("zip", async () => {
       const zip = new JSZip();
@@ -87,7 +83,6 @@ export function ExportBar() {
       }
       download(await zip.generateAsync({ type: "blob" }), `${base}-chunks.zip`);
     });
-
   const exportSrt = () =>
     run("srt", () => {
       const entries = computeSrtEntries(
@@ -107,48 +102,55 @@ export function ExportBar() {
   const disabled = running || busy !== null;
 
   return (
-    <div className="flex flex-col gap-2 border-t border-rule pt-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted">Export</h3>
-        {partial ? (
-          <span className="font-mono text-[11px] tabular-nums text-muted">
-            {done.length}/{chunks.length} chunks ready
-          </span>
-        ) : null}
-      </div>
+    <Card>
+      <CardHeader
+        accent="audio"
+        icon={<IconDownload className="h-[18px] w-[18px]" />}
+        title="Export"
+        description={
+          partial
+            ? `${done.length} of ${chunks.length} chunks ready · ${formatDuration(totalSec)}`
+            : `${formatDuration(totalSec)} of finished narration`
+        }
+      />
 
-      <div className="flex items-center gap-3 text-[11px] text-muted">
-        <label className="flex items-center gap-1.5">
-          Sentence gap
-          <input
-            type="number"
-            min={0}
-            max={3}
-            step={0.05}
-            value={gaps.sentenceGapSec}
-            onChange={(e) => setGaps((g) => ({ ...g, sentenceGapSec: Number(e.target.value) }))}
-            className="w-16 rounded border border-rule bg-desk px-1.5 py-0.5 font-mono tabular-nums text-text"
-          />
-          s
+      <div className="mb-4 grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5">
+          <FieldLabel>Sentence gap</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={0}
+              max={3}
+              step={0.05}
+              value={gaps.sentenceGapSec}
+              onChange={(e) => setGaps((g) => ({ ...g, sentenceGapSec: Number(e.target.value) }))}
+              className="h-9 w-full rounded-lg border border-line bg-surface2 px-2.5 font-mono text-[13px] tabular-nums text-ink focus:border-audio/60 focus:outline-none"
+            />
+            <span className="text-[12px] text-faint">s</span>
+          </div>
         </label>
-        <label className="flex items-center gap-1.5">
-          Paragraph
-          <input
-            type="number"
-            min={0}
-            max={5}
-            step={0.05}
-            value={gaps.paragraphGapSec}
-            onChange={(e) => setGaps((g) => ({ ...g, paragraphGapSec: Number(e.target.value) }))}
-            className="w-16 rounded border border-rule bg-desk px-1.5 py-0.5 font-mono tabular-nums text-text"
-          />
-          s
+        <label className="flex flex-col gap-1.5">
+          <FieldLabel>Paragraph gap</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={0}
+              max={5}
+              step={0.05}
+              value={gaps.paragraphGapSec}
+              onChange={(e) => setGaps((g) => ({ ...g, paragraphGapSec: Number(e.target.value) }))}
+              className="h-9 w-full rounded-lg border border-line bg-surface2 px-2.5 font-mono text-[13px] tabular-nums text-ink focus:border-audio/60 focus:outline-none"
+            />
+            <span className="text-[12px] text-faint">s</span>
+          </div>
         </label>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Button variant="primary" size="sm" disabled={disabled} onClick={exportWav}>
-          {busy === "wav" ? "Stitching…" : "Export WAV"}
+        <Button variant="primary" disabled={disabled} onClick={exportWav} className="col-span-2">
+          <IconDownload className="h-4 w-4" />
+          {busy === "wav" ? "Stitching…" : "Download WAV"}
         </Button>
         <Button size="sm" disabled={disabled} onClick={exportMp3}>
           {busy === "mp3" ? "Encoding…" : "MP3"}
@@ -156,10 +158,10 @@ export function ExportBar() {
         <Button size="sm" disabled={disabled} onClick={exportZip}>
           {busy === "zip" ? "Zipping…" : "chunks.zip"}
         </Button>
-        <Button size="sm" disabled={disabled} onClick={exportSrt}>
-          transcript.srt
+        <Button size="sm" disabled={disabled} onClick={exportSrt} className="col-span-2">
+          Captions (.srt)
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }

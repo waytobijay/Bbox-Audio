@@ -4,6 +4,9 @@
 
 :root {
   color-scheme: dark;
+  --audio: #4ade9f;
+  --video: #7c9bff;
+  --live: #ffb454;
 }
 
 html,
@@ -11,72 +14,54 @@ body {
   height: 100%;
 }
 
-/* Visible keyboard focus everywhere — part of the quality floor. */
-*:focus-visible {
-  outline: 2px solid #5ee6a8;
-  outline-offset: 2px;
-  border-radius: 2px;
+body {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(74, 222, 159, 0.05), transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, rgba(124, 155, 255, 0.05), transparent 55%),
+    #0a0c10;
+  background-attachment: fixed;
 }
 
-/* Quiet scrollbars that match the desk. */
+/* Visible keyboard focus everywhere — part of the quality floor. */
+*:focus-visible {
+  outline: 2px solid var(--audio);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Quiet scrollbars that sit inside the surface ramp. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #272b38 transparent;
+  scrollbar-color: #2f3644 transparent;
 }
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #272b38;
-  border-radius: 4px;
+  background: #232834;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #2f3644;
+  background-clip: content-box;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* The one orchestrated moment: a completed chunk bar fills left-to-right
-   over 240ms with a slight overshoot. Nothing else animates. */
-@keyframes bar-fill {
-  0% {
-    transform: scaleX(0);
-  }
-  85% {
-    transform: scaleX(1.03);
-  }
-  100% {
-    transform: scaleX(1);
-  }
-}
-
-.bar-fill {
-  transform-origin: left center;
-  animation: bar-fill 240ms cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
-}
-
-@keyframes signal-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-.signal-pulse {
-  animation: signal-pulse 1.2s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bar-fill {
-    animation: none;
-  }
-  .signal-pulse {
-    animation: none;
-  }
-  * {
-    transition-duration: 0.01ms !important;
+@layer components {
+  /* Thin gradient hairline used to top-light cards and the sidebar. */
+  .hairline {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.07) 30%,
+      rgba(255, 255, 255, 0.07) 70%,
+      transparent
+    );
   }
 }
 
@@ -91,5 +76,49 @@ body {
     clip: rect(0 0 0 0);
     white-space: nowrap;
     border: 0;
+  }
+
+  /* Indeterminate progress sweep for long renders. */
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.14),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+
+  .stagger > * {
+    animation: fade-up 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  }
+  .stagger > *:nth-child(2) {
+    animation-delay: 0.05s;
+  }
+  .stagger > *:nth-child(3) {
+    animation-delay: 0.1s;
+  }
+  .stagger > *:nth-child(4) {
+    animation-delay: 0.15s;
+  }
+  .stagger > *:nth-child(5) {
+    animation-delay: 0.2s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .shimmer::after {
+    display: none;
   }
 }

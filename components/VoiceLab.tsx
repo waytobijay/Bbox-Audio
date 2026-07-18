@@ -1,30 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  decodeAudioBlob,
-  encodeWavPcm16,
-  trimAudio,
-  type PcmAudio,
-} from "@/lib/audio";
+import { decodeAudioBlob, encodeWavPcm16, trimAudio, type PcmAudio } from "@/lib/audio";
 import { cloneVoice } from "@/lib/backend";
-import {
-  SAMPLE_IDEAL_MAX_SEC,
-  SAMPLE_IDEAL_MIN_SEC,
-  SAMPLE_MIN_SEC,
-} from "@/lib/config";
+import { SAMPLE_IDEAL_MAX_SEC, SAMPLE_IDEAL_MIN_SEC, SAMPLE_MIN_SEC } from "@/lib/config";
 import { useApp } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import type { Voice } from "@/lib/types";
 import { VoiceCard } from "./VoiceCard";
 import { Waveform, type TrimRange } from "./Waveform";
 import { Button } from "./ui/Button";
+import { FieldLabel } from "./ui/Card";
+import { IconAlert, IconMic, IconUpload } from "./ui/Icons";
 import { Input, Textarea } from "./ui/Input";
 
 interface RecorderState {
   recording: boolean;
   elapsedSec: number;
-  level: number; // 0–1 RMS for the meter
+  level: number;
   clipped: boolean;
   noisy: boolean;
 }
@@ -171,7 +164,7 @@ export function VoiceLab() {
       await addVoice(voice);
       setPcm(null);
       setTranscript("");
-      toast(`Voice "${voice.name}" cloned and saved.`, "success");
+      toast(`Voice "${voice.name}" is ready.`, "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Clone failed.", "error");
     } finally {
@@ -185,19 +178,23 @@ export function VoiceLab() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* record / upload */}
+      {/* capture */}
       {!pcm && !rec.recording ? (
-        <div className="rounded-md border border-dashed border-rule p-4 text-center">
-          <p className="mb-3 text-sm text-muted">
-            Record 15 seconds in a quiet room. Read anything — a paragraph from an
-            article works.
+        <div className="rounded-xl border border-dashed border-line bg-surface2/40 px-4 py-6 text-center">
+          <span className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl bg-surface3 text-faint">
+            <IconMic className="h-5 w-5" />
+          </span>
+          <p className="text-[13px] leading-relaxed text-muted">
+            Record {SAMPLE_IDEAL_MIN_SEC}–{SAMPLE_IDEAL_MAX_SEC} seconds in a quiet room.
+            <br />
+            Read anything — a paragraph from an article works.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button onClick={() => void startRecording()}>
-              <span aria-hidden className="text-muted">●</span> Record
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <Button variant="primary" onClick={() => void startRecording()}>
+              <IconMic className="h-4 w-4" /> Record
             </Button>
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-rule bg-panel px-3.5 py-2 text-sm hover:border-muted">
-              Upload
+            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-line bg-surface2 px-4 text-sm text-ink transition-colors hover:border-lineStrong hover:bg-surface3">
+              <IconUpload className="h-4 w-4" /> Upload
               <input
                 type="file"
                 accept=".wav,.mp3,.m4a,audio/*"
@@ -210,27 +207,23 @@ export function VoiceLab() {
               />
             </label>
           </div>
-          <p className="mt-3 text-[11px] leading-relaxed text-muted/80">
-            Aim for {SAMPLE_IDEAL_MIN_SEC}–{SAMPLE_IDEAL_MAX_SEC} seconds · natural
-            reading pace · no music
-          </p>
         </div>
       ) : null}
 
       {/* live recording */}
       {rec.recording ? (
-        <div className="rounded-md border border-signal/40 p-4">
+        <div className="rounded-xl border border-live/40 bg-liveSoft p-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="inline-flex items-center gap-2 text-sm text-signal">
-              <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-signal signal-pulse" />
+            <span className="inline-flex items-center gap-2 text-[13px] font-medium text-live">
+              <span aria-hidden className="h-2 w-2 animate-breathe rounded-full bg-live" />
               Recording
             </span>
-            <span className="font-mono text-sm tabular-nums">
+            <span className="font-mono text-[13px] tabular-nums text-ink">
               {rec.elapsedSec.toFixed(1)}s
             </span>
           </div>
           <div
-            className="h-2 w-full overflow-hidden rounded-full bg-rule"
+            className="h-2 w-full overflow-hidden rounded-full bg-surface3"
             role="meter"
             aria-label="Input level"
             aria-valuemin={0}
@@ -238,73 +231,60 @@ export function VoiceLab() {
             aria-valuenow={Math.round(rec.level * 100)}
           >
             <div
-              className={`h-full ${rec.clipped ? "bg-signal" : "bg-ready"}`}
+              className={`h-full rounded-full transition-[width] duration-75 ${
+                rec.clipped ? "bg-danger" : "bg-live"
+              }`}
               style={{ width: `${rec.level * 100}%` }}
             />
           </div>
           {rec.clipped ? (
-            <p className="mt-2 text-xs text-signal">
-              ⚠ Clipping — move back from the mic or lower the input gain.
+            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
+              <IconAlert className="h-3.5 w-3.5" /> Clipping — move back or lower the input gain.
             </p>
-          ) : null}
-          {rec.noisy && !rec.clipped ? (
-            <p className="mt-2 text-xs text-muted">
+          ) : rec.noisy ? (
+            <p className="mt-2 text-[12px] text-muted">
               The room sounds noisy — a quieter take clones better.
             </p>
           ) : null}
-          {rec.elapsedSec > SAMPLE_IDEAL_MAX_SEC + 5 ? (
-            <p className="mt-2 text-xs text-muted">
-              That&apos;s plenty — {SAMPLE_IDEAL_MIN_SEC}–{SAMPLE_IDEAL_MAX_SEC}s is the
-              sweet spot.
-            </p>
-          ) : null}
-          <Button className="mt-3 w-full" onClick={stopRecording}>
-            Stop
+          <Button className="mt-4 w-full" onClick={stopRecording}>
+            Stop recording
           </Button>
         </div>
       ) : null}
 
       {/* trim + clone */}
       {pcm ? (
-        <div className="flex flex-col gap-3">
-          <Waveform pcm={pcm} trim={trim} onTrimChange={setTrim} />
-          {rec.clipped ? (
-            <p className="text-xs text-signal">
-              ⚠ This take clipped. It may still work, but a cleaner take clones better.
-            </p>
-          ) : null}
+        <div className="flex flex-col gap-4">
+          <div>
+            <FieldLabel>Trim silence</FieldLabel>
+            <Waveform pcm={pcm} trim={trim} onTrimChange={setTrim} />
+          </div>
           {trimmedSec < SAMPLE_MIN_SEC ? (
-            <p className="text-xs text-muted">
+            <p className="text-[12px] text-live">
               Keep at least {SAMPLE_MIN_SEC}s — shorter samples clone poorly.
             </p>
           ) : null}
           <div>
-            <label htmlFor="voice-name" className="mb-1 block text-xs font-medium text-muted">
-              Voice name
-            </label>
-            <Input
-              id="voice-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={40}
-            />
+            <FieldLabel>Voice name</FieldLabel>
+            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
           </div>
           <div>
-            <label htmlFor="transcript" className="mb-1 block text-xs font-medium text-muted">
-              Transcript <span className="text-signal">*</span> — type exactly what you
-              said in the recording
-            </label>
+            <FieldLabel>
+              Transcript <span className="text-live">· required</span>
+            </FieldLabel>
             <Textarea
-              id="transcript"
               rows={3}
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
-              placeholder="Word for word. The clone gets noticeably worse without it."
+              placeholder="Type exactly what you said, word for word."
             />
+            <p className="mt-1.5 text-[11.5px] leading-snug text-faint">
+              This matters more than you'd expect — the clone gets noticeably worse without it.
+            </p>
           </div>
           <div className="flex gap-2">
             <Button variant="primary" className="flex-1" disabled={!canClone} onClick={() => void onClone()}>
-              {cloning ? "Cloning…" : "Clone"}
+              {cloning ? "Cloning…" : "Create voice"}
             </Button>
             <Button
               variant="ghost"
@@ -317,7 +297,7 @@ export function VoiceLab() {
             </Button>
           </div>
           {!connected ? (
-            <p className="text-[11px] text-muted">Connect the backend to clone.</p>
+            <p className="text-[12px] text-faint">Connect the speech engine to clone.</p>
           ) : null}
         </div>
       ) : null}
@@ -325,9 +305,7 @@ export function VoiceLab() {
       {/* saved voices */}
       {voices.length > 0 ? (
         <div>
-          <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted">
-            Saved voices
-          </h3>
+          <FieldLabel>Saved voices</FieldLabel>
           <div className="flex flex-col gap-2">
             {voices.map((v) => (
               <VoiceCard key={v.id} voice={v} />

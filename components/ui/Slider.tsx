@@ -26,13 +26,16 @@ export function Slider({
   disabled,
 }: SliderProps) {
   const id = useId();
+  const pct = ((value - min) / (max - min)) * 100;
   return (
     <div>
-      <div className="mb-1 flex items-baseline justify-between">
-        <label htmlFor={id} className="text-xs font-medium text-muted">
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-[13px] font-medium text-ink">
           {label}
         </label>
-        <span className="font-mono text-xs tabular-nums text-text">{format(value)}</span>
+        <span className="rounded-md bg-surface3 px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-muted">
+          {format(value)}
+        </span>
       </div>
       <input
         id={id}
@@ -43,9 +46,13 @@ export function Slider({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-rule accent-[#E4E6ED] disabled:cursor-not-allowed disabled:opacity-40"
+        // Track is painted with a gradient so the filled portion reads clearly.
+        style={{
+          background: `linear-gradient(90deg, var(--audio) ${pct}%, #1F242F ${pct}%)`,
+        }}
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full accent-[#4ADE9F] disabled:cursor-not-allowed disabled:opacity-40 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#0A0C10] [&::-webkit-slider-thumb]:bg-audio [&::-webkit-slider-thumb]:shadow-[0_1px_6px_rgba(0,0,0,.6)]"
       />
-      {hint ? <p className="mt-1 text-[11px] leading-snug text-muted/80">{hint}</p> : null}
+      {hint ? <p className="mt-1.5 text-[11.5px] leading-snug text-faint">{hint}</p> : null}
     </div>
   );
 }
