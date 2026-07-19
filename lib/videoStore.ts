@@ -195,11 +195,15 @@ export const useVideo = create<VideoState>((set, get) => {
       }, 1000);
 
       try {
-        const result = await animate(s.videoBackendUrl, {
-          imageBlob: s.photoBlob,
-          audioBlob,
-          engine: s.engine,
-        });
+        const result = await animate(
+          s.videoBackendUrl,
+          { imageBlob: s.photoBlob, audioBlob, engine: s.engine },
+          // Real stage text from the backend beats guessing from elapsed time.
+          (stage) =>
+            set((st) =>
+              st.job.status === "processing" ? { job: { ...st.job, progress: stage } } : {}
+            )
+        );
         await db.saveVideoAsset("resultVideo", result.videoBlob, result.durationSec);
         stopTicker();
         set({

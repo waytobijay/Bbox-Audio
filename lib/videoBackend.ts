@@ -30,8 +30,17 @@ export interface VideoHealthInfo {
 }
 
 const HEALTH_TIMEOUT = 15_000;
-// Rendering a talking head can take many minutes — give it a wide ceiling.
-const ANIMATE_TIMEOUT = 20 * 60 * 1000;
+/**
+ * Every call is short-lived by design. A Cloudflare quick tunnel terminates
+ * any single response that takes longer than ~100s, so rendering is a
+ * background job we start and then poll — never one long-held request.
+ */
+const START_TIMEOUT = 120_000; // upload of photo + audio
+const POLL_TIMEOUT = 20_000;
+const RESULT_TIMEOUT = 180_000; // pulling back a multi-MB MP4
+const POLL_INTERVAL = 3_000;
+/** Give up if a render exceeds this. SadTalker on long audio can crawl. */
+const MAX_RENDER_MS = 45 * 60 * 1000;
 
 export async function checkVideoHealth(baseUrl: string): Promise<VideoHealthInfo> {
   const url = normalizeBackendUrl(baseUrl);
@@ -66,51 +75,110 @@ export interface AnimateArgs {
   engine: VideoEngine;
 }
 
-/**
- * POST image + audio to /animate, wait for the rendered MP4.
- * The backend returns { video_b64, duration, gen_seconds }.
- */
-export async function animate(baseUrl: string, args: AnimateArgs): Promise<AnimateResult> {
-  const url = normalizeBackendUrl(baseUrl);
-  if (!url) throw new VideoBackendError("No video backend URL", "network");
-
-  const body = {
-    engine: args.engine,
-    image_b64: await blobToBase64(args.imageBlob),
-    image_mime: args.imageBlob.type || "image/png",
-    audio_b64: await blobToBase64(args.audioBlob),
-  };
-
+async function call<T>(url: string, path: string, init: RequestInit, timeout: number): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${url}/animate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(ANIMATE_TIMEOUT),
-    });
+    res = await fetch(`${url}${path}`, { ...init, signal: AbortSignal.timeout(timeout) });
   } catch (e) {
     const timedOut = e instanceof Error && e.name === "TimeoutError";
     throw new VideoBackendError(
-      timedOut ? "Rendering timed out. Try a shorter script or Wav2Lip." : "Video backend unreachable",
+      timedOut ? "The video backend stopped responding." : "Video backend unreachable",
       "network"
     );
   }
-
-  let data: { video_b64?: string; duration?: number; gen_seconds?: number; error?: string };
+  let data: unknown;
   try {
     data = await res.json();
   } catch {
     throw new VideoBackendError("Video backend returned a non-JSON response", "api");
   }
-  if (!res.ok || data.error) {
-    throw new VideoBackendError(data.error ?? `Video backend error ${res.status}`, "api");
+  const err = (data as { error?: string })?.error;
+  if (!res.ok || err) {
+    throw new VideoBackendError(err ?? `Video backend error ${res.status}`, "api");
   }
-  if (!data.video_b64) throw new VideoBackendError("No video returned", "api");
+  return data as T;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Start a render, poll it to completion, then pull the MP4 back.
+ *
+ * Deliberately split into three short requests: a Cloudflare quick tunnel
+ * kills any single response over ~100s, so holding one request open for a
+ * multi-minute render always died with "backend unreachable".
+ *
+ * `onProgress` receives the backend's own stage text as it advances.
+ */
+export async function animate(
+  baseUrl: string,
+  args: AnimateArgs,
+  onProgress?: (stage: string) => void
+): Promise<AnimateResult> {
+  const url = normalizeBackendUrl(baseUrl);
+  if (!url) throw new VideoBackendError("No video backend URL", "network");
+
+  onProgress?.("Uploading photo and audio…");
+  const started = await call<{ job_id: string; duration: number }>(
+    url,
+    "/animate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        engine: args.engine,
+        image_b64: await blobToBase64(args.imageBlob),
+        image_mime: args.imageBlob.type || "image/png",
+        audio_b64: await blobToBase64(args.audioBlob),
+      }),
+    },
+    START_TIMEOUT
+  );
+
+  const jobId = started.job_id;
+  const deadline = Date.now() + MAX_RENDER_MS;
+  let lastStage = "";
+
+  for (;;) {
+    if (Date.now() > deadline) {
+      throw new VideoBackendError(
+        "Rendering took too long. Try a shorter clip, or use Wav2Lip.",
+        "api"
+      );
+    }
+    await sleep(POLL_INTERVAL);
+
+    const job = await call<{
+      status: "queued" | "processing" | "done" | "failed";
+      stage?: string;
+      error?: string;
+      gen_seconds?: number;
+    }>(url, `/job/${jobId}`, { method: "GET" }, POLL_TIMEOUT);
+
+    if (job.stage && job.stage !== lastStage) {
+      lastStage = job.stage;
+      onProgress?.(job.stage);
+    }
+    if (job.status === "failed") {
+      throw new VideoBackendError(job.error ?? "Rendering failed", "api");
+    }
+    if (job.status === "done") break;
+  }
+
+  onProgress?.("Downloading video…");
+  const result = await call<{ video_b64: string; duration?: number; gen_seconds?: number }>(
+    url,
+    `/job/${jobId}/video`,
+    { method: "GET" },
+    RESULT_TIMEOUT
+  );
+
+  // Best-effort cleanup of the job's scratch dir on the GPU box.
+  void fetch(`${url}/job/${jobId}`, { method: "DELETE" }).catch(() => {});
 
   return {
-    videoBlob: base64ToBlob(data.video_b64, "video/mp4"),
-    durationSec: data.duration ?? 0,
-    genSeconds: data.gen_seconds ?? 0,
+    videoBlob: base64ToBlob(result.video_b64, "video/mp4"),
+    durationSec: result.duration ?? started.duration ?? 0,
+    genSeconds: result.gen_seconds ?? 0,
   };
 }
