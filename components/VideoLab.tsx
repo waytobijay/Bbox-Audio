@@ -52,6 +52,10 @@ export function VideoLab() {
   const removePhoto = useVideo((s) => s.removePhoto);
   const engine = useVideo((s) => s.engine);
   const setEngine = useVideo((s) => s.setEngine);
+  const framing = useVideo((s) => s.framing);
+  const setFraming = useVideo((s) => s.setFraming);
+  const enhance = useVideo((s) => s.enhance);
+  const setEnhance = useVideo((s) => s.setEnhance);
   const backend = useVideo((s) => s.backend);
   const job = useVideo((s) => s.job);
   const generate = useVideo((s) => s.generate);
@@ -223,9 +227,17 @@ export function VideoLab() {
                   {formatDuration(job.elapsedSec)}
                 </span>
               </div>
-              <ProgressBar indeterminate tone="live" label="Rendering" />
-              <p aria-live="polite" className="mt-3 text-[12.5px] text-muted">
-                {job.progress}
+              <ProgressBar
+                value={job.percent}
+                indeterminate={job.percent === undefined}
+                tone="live"
+                label="Rendering"
+              />
+              <p aria-live="polite" className="mt-3 flex items-center justify-between gap-3 text-[12.5px] text-muted">
+                <span>{job.progress}</span>
+                {job.percent !== undefined ? (
+                  <span className="font-mono tabular-nums text-ink">{job.percent}%</span>
+                ) : null}
               </p>
               <p className="mt-1.5 text-[11.5px] text-faint">
                 Keep this tab and the Colab tab open — don&apos;t navigate away.
@@ -314,6 +326,64 @@ export function VideoLab() {
               );
             })}
           </div>
+
+          {/* SadTalker framing has a big effect on both quality and speed, so
+              it is surfaced rather than hidden in the backend. */}
+          {engine === "sadtalker" ? (
+            <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
+              <div>
+                <FieldLabel>Framing</FieldLabel>
+                <div role="radiogroup" aria-label="Framing" className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ["crop", "Crop to face", "Sharpest, fastest"],
+                      ["full", "Whole photo", "Softer face"],
+                    ] as const
+                  ).map(([id, label, hint]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={framing === id}
+                      disabled={processing}
+                      onClick={() => setFraming(id)}
+                      className={`rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-40 ${
+                        framing === id
+                          ? "border-video/40 bg-videoSoft"
+                          : "border-line bg-surface2 hover:border-lineStrong"
+                      }`}
+                    >
+                      <span className="block text-[12.5px] font-medium text-ink">{label}</span>
+                      <span className="block text-[11px] text-faint">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] leading-snug text-faint">
+                  If the face is small in your photo, &ldquo;whole photo&rdquo; scales the
+                  generated face back down and the mouth can smear. Crop avoids that.
+                </p>
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={enhance}
+                  disabled={processing}
+                  onChange={(e) => setEnhance(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-[#7C9BFF]"
+                />
+                <span>
+                  <span className="block text-[12.5px] font-medium text-ink">
+                    Face enhancement
+                  </span>
+                  <span className="block text-[11px] leading-snug text-faint">
+                    Sharper skin detail, but runs a second network on every frame — often
+                    doubles render time or worse. Leave off unless the result looks soft.
+                  </span>
+                </span>
+              </label>
+            </div>
+          ) : null}
         </Card>
 
         {/* voice audio */}

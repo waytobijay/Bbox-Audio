@@ -42,8 +42,8 @@ describe("animate — job/poll protocol", () => {
       if (path === "/job/abc123") {
         polls++;
         return polls < 2
-          ? jsonRes({ status: "processing", stage: "Rendering with wav2lip…" })
-          : jsonRes({ status: "done", stage: "Finished", gen_seconds: 12.5 });
+          ? jsonRes({ status: "processing", stage: "Syncing lips", percent: 42 })
+          : jsonRes({ status: "done", stage: "Finished", percent: 100, gen_seconds: 12.5 });
       }
       if (path === "/job/abc123/video") {
         return jsonRes({ video_b64: btoa("fake-mp4"), duration: 4.2, gen_seconds: 12.5 });
@@ -51,8 +51,8 @@ describe("animate — job/poll protocol", () => {
       throw new Error("unexpected " + path);
     }));
 
-    const stages: string[] = [];
-    const res = await animate(URL_BASE, makeArgs(), (s) => stages.push(s));
+    const reports: Array<{ stage: string; percent?: number }> = [];
+    const res = await animate(URL_BASE, makeArgs(), (p) => reports.push(p));
 
     // never holds one long request: start, poll(s), then fetch result
     expect(calls[0]).toBe("POST /animate");
@@ -63,8 +63,28 @@ describe("animate — job/poll protocol", () => {
     expect(res.durationSec).toBe(4.2);
     expect(res.genSeconds).toBe(12.5);
 
-    // backend's own stage text is surfaced, not guessed from elapsed time
-    expect(stages).toContain("Rendering with wav2lip…");
+    // the backend's own stage text is surfaced, never invented from elapsed time
+    expect(reports.map((r) => r.stage)).toContain("Syncing lips");
+    // and its real percentage reaches the UI, so the bar is not decorative
+    expect(reports.some((r) => r.percent === 42)).toBe(true);
+  }, 20_000);
+
+  it("passes framing and enhancer choices to the backend", async () => {
+    let posted: Record<string, unknown> = {};
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = url.replace(URL_BASE, "");
+      if (path === "/animate") {
+        posted = JSON.parse(String(init?.body));
+        return jsonRes({ job_id: "j2", duration: 1 });
+      }
+      if (path === "/job/j2") return jsonRes({ status: "done", percent: 100 });
+      if (path === "/job/j2/video") return jsonRes({ video_b64: btoa("v"), duration: 1 });
+      throw new Error("unexpected " + path);
+    }));
+
+    await animate(URL_BASE, { ...makeArgs(), engine: "sadtalker", framing: "crop", enhance: false });
+    expect(posted.framing).toBe("crop");
+    expect(posted.enhance).toBe(false);
   }, 20_000);
 
   it("surfaces the backend's real error when a render fails", async () => {

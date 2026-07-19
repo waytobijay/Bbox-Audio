@@ -12,7 +12,7 @@
 
 import { base64ToBlob, blobToBase64 } from "./audio";
 import { normalizeBackendUrl } from "./backend";
-import type { AnimateResult, VideoEngine } from "./types";
+import type { AnimateResult, VideoEngine, VideoFraming } from "./types";
 
 export class VideoBackendError extends Error {
   kind: "network" | "api";
@@ -73,6 +73,14 @@ export interface AnimateArgs {
   imageBlob: Blob;
   audioBlob: Blob;
   engine: VideoEngine;
+  /** SadTalker only — framing and the (slow) face enhancer. */
+  framing?: VideoFraming;
+  enhance?: boolean;
+}
+
+export interface AnimateProgress {
+  stage: string;
+  percent?: number;
 }
 
 async function call<T>(url: string, path: string, init: RequestInit, timeout: number): Promise<T> {
@@ -113,12 +121,12 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function animate(
   baseUrl: string,
   args: AnimateArgs,
-  onProgress?: (stage: string) => void
+  onProgress?: (p: AnimateProgress) => void
 ): Promise<AnimateResult> {
   const url = normalizeBackendUrl(baseUrl);
   if (!url) throw new VideoBackendError("No video backend URL", "network");
 
-  onProgress?.("Uploading photo and audio…");
+  onProgress?.({ stage: "Uploading photo and audio…" });
   const started = await call<{ job_id: string; duration: number }>(
     url,
     "/animate",
@@ -127,6 +135,8 @@ export async function animate(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         engine: args.engine,
+        framing: args.framing ?? "crop",
+        enhance: args.enhance ?? false,
         image_b64: await blobToBase64(args.imageBlob),
         image_mime: args.imageBlob.type || "image/png",
         audio_b64: await blobToBase64(args.audioBlob),
@@ -151,13 +161,16 @@ export async function animate(
     const job = await call<{
       status: "queued" | "processing" | "done" | "failed";
       stage?: string;
+      percent?: number;
       error?: string;
       gen_seconds?: number;
     }>(url, `/job/${jobId}`, { method: "GET" }, POLL_TIMEOUT);
 
-    if (job.stage && job.stage !== lastStage) {
-      lastStage = job.stage;
-      onProgress?.(job.stage);
+    // Report every poll, not only on stage change — the percentage moves
+    // continuously while the stage text stays the same.
+    if (job.stage || job.percent !== undefined) {
+      lastStage = job.stage ?? lastStage;
+      onProgress?.({ stage: lastStage, percent: job.percent });
     }
     if (job.status === "failed") {
       throw new VideoBackendError(job.error ?? "Rendering failed", "api");
@@ -165,7 +178,7 @@ export async function animate(
     if (job.status === "done") break;
   }
 
-  onProgress?.("Downloading video…");
+  onProgress?.({ stage: "Downloading video…", percent: 100 });
   const result = await call<{ video_b64: string; duration?: number; gen_seconds?: number }>(
     url,
     `/job/${jobId}/video`,

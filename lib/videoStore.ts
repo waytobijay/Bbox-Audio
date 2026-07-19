@@ -13,32 +13,21 @@ import {
   checkVideoHealth,
   VideoBackendError,
 } from "./videoBackend";
-import type { VideoBackendStatus, VideoEngine, VideoJob } from "./types";
+import type {
+  VideoBackendStatus,
+  VideoEngine,
+  VideoFraming,
+  VideoJob,
+} from "./types";
 
 const LS_VIDEO_URL = "voiceforge:videoBackendUrl";
 
-const ENGINE_STAGES: Record<VideoEngine, Array<[number, string]>> = {
-  // [elapsed seconds threshold, message]
-  sadtalker: [
-    [0, "Uploading photo and audio…"],
-    [6, "Detecting and cropping the face…"],
-    [20, "Predicting head motion and expressions…"],
-    [45, "Rendering frames (this is the slow part)…"],
-  ],
-  wav2lip: [
-    [0, "Uploading photo and audio…"],
-    [5, "Detecting the face…"],
-    [15, "Syncing lips to the audio…"],
-    [40, "Encoding the final video…"],
-  ],
-};
-
-function stageFor(engine: VideoEngine, elapsedSec: number): string {
-  const stages = ENGINE_STAGES[engine];
-  let msg = stages[0][1];
-  for (const [t, m] of stages) if (elapsedSec >= t) msg = m;
-  return msg;
-}
+/**
+ * Stage text and percentage come from the backend, which follows the engine's
+ * own tqdm output. There used to be a table of stage names guessed from
+ * elapsed time here — it looked informative but was fiction, and it overwrote
+ * the real status. Never invent progress.
+ */
 
 const IDLE_JOB: VideoJob = {
   status: "idle",
@@ -54,6 +43,11 @@ interface VideoState {
   connecting: boolean;
   photoBlob: Blob | null;
   engine: VideoEngine;
+  /** SadTalker framing. `crop` is the default: sharper face and far faster. */
+  framing: VideoFraming;
+  /** GFPGAN face enhancement. Runs a second network on EVERY frame — off by
+   *  default because it dominates render time. */
+  enhance: boolean;
   job: VideoJob;
 
   hydrate(): Promise<void>;
@@ -62,6 +56,8 @@ interface VideoState {
   setPhoto(blob: Blob): Promise<void>;
   removePhoto(): Promise<void>;
   setEngine(engine: VideoEngine): void;
+  setFraming(framing: VideoFraming): void;
+  setEnhance(enhance: boolean): void;
   generate(audioBlob: Blob): Promise<void>;
   clearResult(): Promise<void>;
 }
@@ -81,6 +77,8 @@ export const useVideo = create<VideoState>((set, get) => {
     connecting: false,
     photoBlob: null,
     engine: "sadtalker",
+    framing: "crop",
+    enhance: false,
     job: { ...IDLE_JOB },
 
     async hydrate() {
@@ -159,6 +157,14 @@ export const useVideo = create<VideoState>((set, get) => {
       set({ engine });
     },
 
+    setFraming(framing: VideoFraming) {
+      set({ framing });
+    },
+
+    setEnhance(enhance: boolean) {
+      set({ enhance });
+    },
+
     async generate(audioBlob: Blob) {
       const s = get();
       if (s.job.status === "processing") return;
@@ -180,28 +186,35 @@ export const useVideo = create<VideoState>((set, get) => {
         job: {
           status: "processing",
           engine: s.engine,
-          progress: stageFor(s.engine, 0),
+          progress: "Starting…",
           elapsedSec: 0,
         },
       });
+      // The ticker now only advances the elapsed clock — it must never touch
+      // `progress` or `percent`, which are the backend's to report.
       stopTicker();
       ticker = setInterval(() => {
         const elapsedSec = (performance.now() - startedAt) / 1000;
         set((st) =>
-          st.job.status === "processing"
-            ? { job: { ...st.job, elapsedSec, progress: stageFor(st.job.engine, elapsedSec) } }
-            : {}
+          st.job.status === "processing" ? { job: { ...st.job, elapsedSec } } : {}
         );
       }, 1000);
 
       try {
         const result = await animate(
           s.videoBackendUrl,
-          { imageBlob: s.photoBlob, audioBlob, engine: s.engine },
-          // Real stage text from the backend beats guessing from elapsed time.
-          (stage) =>
+          {
+            imageBlob: s.photoBlob,
+            audioBlob,
+            engine: s.engine,
+            framing: s.framing,
+            enhance: s.enhance,
+          },
+          ({ stage, percent }) =>
             set((st) =>
-              st.job.status === "processing" ? { job: { ...st.job, progress: stage } } : {}
+              st.job.status === "processing"
+                ? { job: { ...st.job, progress: stage, percent } }
+                : {}
             )
         );
         await db.saveVideoAsset("resultVideo", result.videoBlob, result.durationSec);

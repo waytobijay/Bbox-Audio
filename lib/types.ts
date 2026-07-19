@@ -116,12 +116,23 @@ export interface VideoBackendStatus {
 export interface VideoJob {
   status: VideoStatus;
   engine: VideoEngine;
-  progress: string; // human-readable stage, e.g. "Rendering frames…"
+  progress: string; // real stage text reported by the backend
+  /** 0–100 parsed from the engine's own output; undefined until it reports. */
+  percent?: number;
   elapsedSec: number;
   videoBlob?: Blob;
   durationSec?: number;
   error?: string;
 }
+
+/**
+ * How SadTalker frames the result.
+ * crop — cut to the face. Sharpest mouth detail, much faster. Best default,
+ *   especially when the face is small in a wide photo.
+ * full — keep the whole photo. The generated face is scaled back into frame,
+ *   so a small face loses detail and can smear around the lips.
+ */
+export type VideoFraming = "crop" | "full";
 
 export interface AnimateResult {
   videoBlob: Blob;
