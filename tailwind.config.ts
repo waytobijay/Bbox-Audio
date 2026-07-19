@@ -68,11 +68,17 @@ const config: Config = {
           "0%,100%": { opacity: "1" },
           "50%": { opacity: ".45" },
         },
+        // A travelling segment: unmistakably "working", never "stuck full".
+        slide: {
+          "0%": { left: "-35%" },
+          "100%": { left: "100%" },
+        },
       },
       animation: {
         "fade-up": "fade-up .4s cubic-bezier(.2,.8,.3,1) both",
         shimmer: "shimmer 1.6s infinite",
         breathe: "breathe 1.8s ease-in-out infinite",
+        slide: "slide 1.3s ease-in-out infinite",
       },
     },
   },

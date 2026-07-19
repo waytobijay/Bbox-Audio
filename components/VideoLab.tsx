@@ -70,7 +70,12 @@ export function VideoLab() {
   const clearResult = useVideo((s) => s.clearResult);
 
   const [audioSource, setAudioSource] = useState<AudioSource>("narration");
-  const [uploadedAudio, setUploadedAudio] = useState<{ blob: Blob; name: string } | null>(null);
+  // durationSec is measured on selection — without it the render guard can't
+  // budget for uploaded files, which previously let doomed jobs through.
+  const [uploadedAudio, setUploadedAudio] = useState<
+    { blob: Blob; name: string; durationSec: number } | null
+  >(null);
+  const [measuring, setMeasuring] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
@@ -148,9 +153,9 @@ export function VideoLab() {
   const processing = job.status === "processing";
   const engineLoaded = (e: VideoEngine) => !backend.connected || backend.enginesLoaded.includes(e);
   const base = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "talking-head";
-  // Only the generated narration has a known length up front; an uploaded file
-  // is measured by the backend, so we can't budget for it here.
-  const selectedSec = audioSource === "narration" ? narrationSec : 0;
+  // Both sources have a known length, so the guard applies to either.
+  const selectedSec =
+    audioSource === "narration" ? narrationSec : (uploadedAudio?.durationSec ?? 0);
   const overSadTalkerLimit =
     engine === "sadtalker" && selectedSec > SADTALKER_MAX_AUDIO_SEC;
   const estSec = selectedSec ? estimateRenderSec(engine, selectedSec, enhance) : 0;
@@ -463,7 +468,15 @@ export function VideoLab() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-medium text-ink">Upload audio</span>
                   <span className="block truncate font-mono text-[11px] text-faint">
-                    {uploadedAudio ? uploadedAudio.name : "wav, mp3 or m4a"}
+                    {measuring
+                      ? "reading…"
+                      : uploadedAudio
+                        ? `${uploadedAudio.name}${
+                            uploadedAudio.durationSec
+                              ? ` · ${formatDuration(uploadedAudio.durationSec)}`
+                              : ""
+                          }`
+                        : "wav, mp3 or m4a"}
                   </span>
                 </span>
               </label>
@@ -476,11 +489,26 @@ export function VideoLab() {
                   className="visually-hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) {
-                      setUploadedAudio({ blob: f, name: f.name });
-                      setAudioSource("upload");
-                    }
                     e.target.value = "";
+                    if (!f) return;
+                    setAudioSource("upload");
+                    setMeasuring(true);
+                    // Measure now so the render guard can budget for it.
+                    void decodeAudioBlob(f)
+                      .then((pcm) =>
+                        setUploadedAudio({
+                          blob: f,
+                          name: f.name,
+                          durationSec: pcm.samples.length / pcm.sampleRate,
+                        })
+                      )
+                      .catch(() => {
+                        // Unreadable here doesn't mean unusable — ffmpeg on the
+                        // backend is more tolerant. Allow it, just unbudgeted.
+                        setUploadedAudio({ blob: f, name: f.name, durationSec: 0 });
+                        toast("Couldn't read that file's length; render time is unknown.", "info");
+                      })
+                      .finally(() => setMeasuring(false));
                   }}
                 />
               </label>
