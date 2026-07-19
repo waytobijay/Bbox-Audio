@@ -2,12 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  decodeAudioBlob,
   encodeWavPcm16,
   formatDuration,
   peakNormalize,
   stitchChunks,
+  trimAudio,
   wavBlobToPcm,
 } from "@/lib/audio";
+import {
+  PREVIEW_SEC,
+  RENDER_COST,
+  SADTALKER_MAX_AUDIO_SEC,
+  estimateRenderSec,
+} from "@/lib/config";
 import { useApp } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import type { Chunk, VideoEngine } from "@/lib/types";
@@ -94,7 +102,15 @@ export function VideoLab() {
     return encodeWavPcm16(peakNormalize(stitchChunks(items)));
   }
 
-  async function onGenerate() {
+  /** Trim to the first N seconds so a quality check costs a minute, not an hour. */
+  async function trimTo(blob: Blob, seconds: number): Promise<Blob> {
+    const pcm = await decodeAudioBlob(blob);
+    const total = pcm.samples.length / pcm.sampleRate;
+    if (total <= seconds) return blob;
+    return encodeWavPcm16(trimAudio(pcm, 0, seconds));
+  }
+
+  async function onGenerate(preview = false) {
     let audioBlob: Blob;
     setPreparing(true);
     try {
@@ -111,6 +127,10 @@ export function VideoLab() {
         }
         audioBlob = uploadedAudio.blob;
       }
+      if (preview) audioBlob = await trimTo(audioBlob, PREVIEW_SEC);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Couldn't prepare the audio.", "error");
+      return;
     } finally {
       setPreparing(false);
     }
@@ -128,8 +148,12 @@ export function VideoLab() {
   const processing = job.status === "processing";
   const engineLoaded = (e: VideoEngine) => !backend.connected || backend.enginesLoaded.includes(e);
   const base = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "talking-head";
+  // Only the generated narration has a known length up front; an uploaded file
+  // is measured by the backend, so we can't budget for it here.
   const selectedSec = audioSource === "narration" ? narrationSec : 0;
-  const tooLongForSadTalker = engine === "sadtalker" && audioSource === "narration" && selectedSec > 120;
+  const overSadTalkerLimit =
+    engine === "sadtalker" && selectedSec > SADTALKER_MAX_AUDIO_SEC;
+  const estSec = selectedSec ? estimateRenderSec(engine, selectedSec, enhance) : 0;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -463,26 +487,67 @@ export function VideoLab() {
             </div>
           </div>
 
-          {tooLongForSadTalker ? (
-            <div className="mt-3 flex gap-2.5 rounded-xl border border-live/30 bg-liveSoft px-3.5 py-3">
-              <IconAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-live" />
-              <p className="text-[11.5px] leading-relaxed text-muted">
-                {formatDuration(narrationSec)} is long for SadTalker — it renders far slower than
-                real time and may exceed the free session. Switch to Wav2Lip for this length.
-              </p>
+          {/* A hard stop, not a warning. Past this length a SadTalker render
+              reliably outlives the free session, and the cost of finding that
+              out is 45 wasted minutes. */}
+          {overSadTalkerLimit ? (
+            <div className="mt-3 rounded-xl border border-danger/30 bg-dangerSoft px-3.5 py-3">
+              <div className="flex gap-2.5">
+                <IconAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+                <p className="text-[11.5px] leading-relaxed text-muted">
+                  <strong className="text-ink">
+                    SadTalker can&apos;t finish {formatDuration(narrationSec)} on a free GPU.
+                  </strong>{" "}
+                  It renders roughly {RENDER_COST.sadtalker}× slower than real time — this
+                  would take about {formatDuration(estSec)} and run past the session limit.
+                </p>
+              </div>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <Button size="sm" variant="video" onClick={() => setEngine("wav2lip")}>
+                  Use Wav2Lip instead
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!backend.connected || !photoBlob || preparing || processing}
+                  onClick={() => void onGenerate(true)}
+                >
+                  Preview first {PREVIEW_SEC}s
+                </Button>
+              </div>
             </div>
+          ) : null}
+
+          {estSec > 0 && !overSadTalkerLimit ? (
+            <p className="mt-3 flex items-center gap-1.5 text-[11.5px] text-faint">
+              <IconClock className="h-3.5 w-3.5" />
+              Roughly {formatDuration(estSec)} to render {formatDuration(selectedSec)} of audio
+              {enhance ? " (enhancer on)" : ""}.
+            </p>
           ) : null}
 
           <Button
             variant="video"
             size="lg"
-            className="mt-4 w-full"
-            disabled={!backend.connected || !photoBlob || preparing || processing}
+            className="mt-3 w-full"
+            disabled={
+              !backend.connected || !photoBlob || preparing || processing || overSadTalkerLimit
+            }
             onClick={() => void onGenerate()}
           >
             <IconSparkle className="h-4 w-4" />
             {preparing ? "Preparing audio…" : processing ? "Rendering…" : "Generate video"}
           </Button>
+
+          {/* Cheap way to judge quality before committing to a full render. */}
+          {!overSadTalkerLimit && selectedSec > PREVIEW_SEC ? (
+            <Button
+              className="mt-2 w-full"
+              disabled={!backend.connected || !photoBlob || preparing || processing}
+              onClick={() => void onGenerate(true)}
+            >
+              Preview first {PREVIEW_SEC}s
+            </Button>
+          ) : null}
         </Card>
       </aside>
     </div>

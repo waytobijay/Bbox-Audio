@@ -31,7 +31,7 @@ const LS_VIDEO_URL = "voiceforge:videoBackendUrl";
 
 const IDLE_JOB: VideoJob = {
   status: "idle",
-  engine: "sadtalker",
+  engine: "wav2lip",
   progress: "",
   elapsedSec: 0,
 };
@@ -76,7 +76,9 @@ export const useVideo = create<VideoState>((set, get) => {
     backend: { connected: false, url: "", enginesLoaded: [] },
     connecting: false,
     photoBlob: null,
-    engine: "sadtalker",
+    // Wav2Lip is the default because it is the engine that reliably finishes
+    // on free-tier hardware. SadTalker is opt-in, for short clips.
+    engine: "wav2lip",
     framing: "crop",
     enhance: false,
     job: { ...IDLE_JOB },
