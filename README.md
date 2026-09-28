@@ -29,37 +29,40 @@ That's the app. It doesn't do anything yet — it has no engine. Next step gives
 3. **Runtime → Change runtime type → T4 GPU** → Save. *(This is free. If you skip it, nothing works.)*
 4. **Runtime → Run all.**
 5. Wait. Cell 1 installs (~2 min). Cell 2 loads the models (~2–4 min).
-6. Cell 3 prints a URL in a box:
+6. Cell 3 opens a tunnel and **registers itself with your app**. It prints:
 
 ```
-============================================================
-  BACKEND URL — paste this into VoiceForge:
-  https://random-words-here.trycloudflare.com
-============================================================
+==============================================================
+  REGISTERED — nothing to copy. Check Admin -> Backends.
+==============================================================
 ```
 
-7. **Copy that URL.**
+Before the first run, paste your app URL and `REGISTRATION_TOKEN` into **Cell 0** — Admin → Backends shows a copy-ready snippet with both.
 
-**Leave the Colab tab open.** Close it and your backend dies. The URL is new every session — that's normal.
+**Leave the Colab tab open.** Close it and your backend dies. The tunnel URL is new every session, but you never see it: the notebook re-registers and heartbeats every 60 seconds.
 
-### Step 3 — Connect
+### Step 3 — Check it's live
 
-1. Open your Vercel app.
-2. Paste the URL into the field at the top. Hit **Connect**.
-3. The pill turns green: **Live**. It shows your GPU (usually `Tesla T4`).
+1. Open your app → **Admin → Backends**.
+2. Within about a minute the Colab card turns **Online**, showing the GPU.
+3. Press **Test** if you want proof it answers.
 
-You now have a working voice studio.
+That's it — no URL to paste anywhere. The studio asks the server which backend to use on every request, so you can switch between Modal, Colab, Kaggle and Custom (or leave it on **Auto**) without touching the studio.
 
 ---
 
 ## Making narration
 
-### Step 4 — Clone your voice (once)
+### Step 4 — Add your voice (once, ever)
+
+Either in the studio's **Voice** panel, or under **Admin → Voices**:
 
 1. **Record** — 15–20 seconds. Quiet room, phone or laptop mic is fine, no music, natural pace. Read a paragraph from any article.
 2. **Type the transcript** — exactly what you said, word for word. This matters more than you'd think; the clone gets noticeably worse without it.
 3. **Trim** the silence off the front and back with the waveform handles.
-4. **Clone.** Takes a few seconds. The voice is saved in your browser and reused forever.
+4. **Save.** The clip goes into your voice library on the server.
+
+The library is the point: the clip is stored once and cached onto whichever GPU is running the first time it's used. A Colab restart, a switch to Modal, a different browser — none of them need a re-clone.
 
 **What makes a good sample:** consistent volume, no background hum, no room echo, and you speaking the way you want the narration to sound. If you read your sample flat, the narration will be flat.
 
@@ -148,9 +151,9 @@ Nothing here touches the TTS flow — the Studio tab works exactly as before whe
 ## The honest limits
 
 - **Colab free tier gives you a few hours per session**, and there's a rough daily cap. More than enough for a video or two a day. Not enough to run a service on.
-- **The backend URL changes every session.** By design — it's a fresh tunnel each time.
+- **The backend URL changes every session.** By design — it's a fresh tunnel each time. You don't see it: the notebook registers it for you.
 - **The Colab tab must stay open** while you generate.
-- **Your voice sample never leaves your control.** It goes from your browser to *your* Colab session. Not to Anthropic, not to Vercel, not to any TTS company.
+- **Your voice sample never leaves your control.** It goes from your browser to *your* Vercel Blob store, and from there to *your* GPU session. Not to Anthropic, not to any TTS company.
 - **Languages:** the backend runs Chatterbox Multilingual — 23 languages including English and Hindi (pick one in Model controls). **Nepali is not supported by the model yet**; Hindi is the closest option. Number expansion ("15GB" → "fifteen gigabytes") only applies to English scripts; other languages keep digits for the model to read in-language.
 
 ---
@@ -163,7 +166,7 @@ npm run dev    # http://localhost:3000
 npm test       # chunker + normalization unit tests
 ```
 
-The app is a thin client — everything except the TTS models runs in your browser. Voice profiles, scripts, and generated audio live in IndexedDB. See `.claude_context.md` for architecture constraints.
+The app is a thin client — no model ever runs in a Next.js route. Scripts and generated audio stay in your browser's IndexedDB; voices live in the server-side library (Redis + Blob) so every backend can reach them. Speech requests go through `/api/gateway/*`, which is the only place that knows a backend URL or the backend secret. See `.claude_context.md` for architecture constraints.
 
 ---
 

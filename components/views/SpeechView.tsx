@@ -60,8 +60,8 @@ export function SpeechView() {
               <CardHeader
                 accent="audio"
                 icon={<IconWave className="h-[18px] w-[18px]" />}
-                title="Connect the speech GPU"
-                description="Run the notebook on Colab with a T4 GPU, then paste the URL it prints."
+                title="Start the speech GPU"
+                description="Run the notebook on Colab or Kaggle with a T4 GPU. It registers itself — nothing to paste."
               />
               <SpeechConnectionForm />
             </Card>
@@ -72,7 +72,7 @@ export function SpeechView() {
               accent="audio"
               icon={<IconMic className="h-[18px] w-[18px]" />}
               title="Voice"
-              description="15–20 seconds in a quiet room is all it takes."
+              description="Saved to your library, then cached on whichever GPU is running."
             />
             <VoiceLab />
           </Card>

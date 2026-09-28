@@ -183,3 +183,35 @@ export interface BackendView extends RegisteredBackend {
   health: BackendHealthKind;
   secondsSinceHeartbeat: number;
 }
+
+// ---------------------------------------------------------------------------
+// Central voice library (platform v2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A voice that lives on the server, not in one browser.
+ *
+ * The reference clip sits in Vercel Blob at a public URL; backends download it
+ * themselves the first time they're asked to use the voice. That's what makes
+ * "clone once, works everywhere" true — a Colab restart loses its local cache,
+ * not the voice.
+ */
+export interface LibraryVoice {
+  id: string;
+  name: string;
+  /** ISO 639-1, passed through to Chatterbox as language_id. */
+  language: string;
+  /** Exact words spoken in the clip. Required by Qwen3, helps Chatterbox. */
+  transcript: string;
+  /** Public Blob URL of the reference clip (always 16-bit PCM WAV). */
+  audioUrl: string;
+  durationSec: number;
+  sizeBytes: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Library row plus whether it's the default pick. */
+export interface LibraryVoiceView extends LibraryVoice {
+  isDefault: boolean;
+}

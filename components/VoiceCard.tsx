@@ -2,26 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "@/lib/audio";
+import type { StudioVoice } from "@/lib/gateway";
 import { useApp } from "@/lib/store";
-import type { Voice } from "@/lib/types";
 import { IconCheck, IconPause, IconPlay, IconTrash } from "./ui/Icons";
 
-export function VoiceCard({ voice }: { voice: Voice }) {
+/**
+ * One row in the voice picker. The clip itself lives in the central library,
+ * so preview streams from its stored URL rather than a blob in this tab.
+ */
+export function VoiceCard({ voice }: { voice: StudioVoice }) {
   const activeVoiceId = useApp((s) => s.activeVoiceId);
   const setActiveVoice = useApp((s) => s.setActiveVoice);
   const removeVoice = useApp((s) => s.removeVoice);
   const running = useApp((s) => s.queue.running);
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const urlRef = useRef<string | null>(null);
 
   const active = activeVoiceId === voice.id;
 
   useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    };
+    return () => audioRef.current?.pause();
   }, []);
 
   const togglePlay = () => {
@@ -31,9 +31,9 @@ export function VoiceCard({ voice }: { voice: Voice }) {
       return;
     }
     if (!audioRef.current) {
-      urlRef.current = URL.createObjectURL(voice.sampleBlob);
-      audioRef.current = new Audio(urlRef.current);
+      audioRef.current = new Audio(voice.audioUrl);
       audioRef.current.onended = () => setPlaying(false);
+      audioRef.current.onerror = () => setPlaying(false);
     }
     void audioRef.current.play();
     setPlaying(true);
@@ -69,7 +69,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
           <span className="block truncate text-[13px] font-medium text-ink">{voice.name}</span>
           <span className="block font-mono text-[11px] tabular-nums text-faint">
             {formatDuration(voice.durationSec)}
-            {voice.remoteId ? " · on GPU" : ""}
+            {voice.isDefault ? " · default" : ""}
           </span>
         </span>
       </button>
@@ -84,7 +84,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
       <button
         type="button"
         onClick={() => {
-          if (window.confirm(`Delete "${voice.name}"? The sample is gone for good.`)) {
+          if (window.confirm(`Delete "${voice.name}" from the library? This can't be undone.`)) {
             void removeVoice(voice.id);
           }
         }}

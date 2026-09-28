@@ -1,11 +1,25 @@
 import Link from "next/link";
 import { AdminPage } from "@/components/admin/AdminShell";
 import { isAuthConfigured } from "@/lib/server/auth";
+import { getActiveSelection, listBackends } from "@/lib/server/backends";
 import { isBlobConfigured } from "@/lib/server/blob";
 import { isRedisConfigured } from "@/lib/server/redis";
+import { listVoices } from "@/lib/server/voices";
 import { IconAlert, IconArrowRight, IconCheck } from "@/components/ui/Icons";
 
 export const dynamic = "force-dynamic";
+
+function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="glass-card px-5 py-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">{label}</p>
+      <p className="mt-1.5 font-display text-2xl font-bold capitalize tracking-tight text-ink">
+        {value}
+      </p>
+      <p className="mt-0.5 truncate text-[12.5px] text-muted">{detail}</p>
+    </div>
+  );
+}
 
 function SetupRow({
   ok,
@@ -41,14 +55,39 @@ function SetupRow({
   );
 }
 
-export default function AdminDashboard() {
+export default async function AdminDashboard() {
   const auth = isAuthConfigured();
   const redis = isRedisConfigured();
   const blob = isBlobConfigured();
   const remaining = [auth, redis, blob].filter((x) => !x).length;
 
+  const [backends, active, voices] = await Promise.all([
+    listBackends(),
+    getActiveSelection(),
+    listVoices(),
+  ]);
+  const live = backends.filter((b) => b.health === "online" || b.health === "busy");
+
   return (
-    <AdminPage title="Dashboard" description="Platform status and setup. Phase 1 — foundation.">
+    <AdminPage title="Dashboard" description="What's running right now, and what's left to set up.">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <Stat
+          label="Backends online"
+          value={`${live.length}`}
+          detail={live.length ? live.map((b) => b.provider).join(", ") : "nothing is running"}
+        />
+        <Stat
+          label="Active selection"
+          value={active === "auto" ? "Auto" : active}
+          detail={active === "auto" ? "first healthy by priority" : "pinned to one provider"}
+        />
+        <Stat
+          label="Voices"
+          value={`${voices.length}`}
+          detail={voices.find((v) => v.isDefault)?.name ?? "no default set"}
+        />
+      </div>
+
       <div className="glass-card overflow-hidden">
         <div className="border-b border-line bg-surface2 px-5 py-3.5">
           <h2 className="text-[13px] font-semibold text-ink">
@@ -100,6 +139,26 @@ export default function AdminDashboard() {
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Link
+          href="/admin/backends"
+          className="glass-card group flex items-center gap-3 px-5 py-4 transition-shadow hover:shadow-lift"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-semibold text-ink">Backends</p>
+            <p className="mt-0.5 text-[13px] text-muted">Where generation runs. Connect Colab.</p>
+          </div>
+          <IconArrowRight className="h-4 w-4 shrink-0 text-faint transition-transform group-hover:translate-x-0.5" />
+        </Link>
+        <Link
+          href="/admin/voices"
+          className="glass-card group flex items-center gap-3 px-5 py-4 transition-shadow hover:shadow-lift"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-semibold text-ink">Voices</p>
+            <p className="mt-0.5 text-[13px] text-muted">Your library. Clone once, use anywhere.</p>
+          </div>
+          <IconArrowRight className="h-4 w-4 shrink-0 text-faint transition-transform group-hover:translate-x-0.5" />
+        </Link>
+        <Link
           href="/admin/settings"
           className="glass-card group flex items-center gap-3 px-5 py-4 transition-shadow hover:shadow-lift"
         >
@@ -122,8 +181,9 @@ export default function AdminDashboard() {
       </div>
 
       <p className="mt-6 text-[12.5px] leading-relaxed text-faint">
-        Backends, Voices, API Keys and Jobs arrive in the next phases. They are listed in the
-        sidebar so the shape of the platform is visible as it fills in.
+        API Keys and Jobs arrive in the next phase — that&apos;s what n8n and other automations will
+        use. They&apos;re listed in the sidebar so the shape of the platform stays visible as it
+        fills in.
       </p>
     </AdminPage>
   );

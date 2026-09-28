@@ -157,8 +157,8 @@ export function HomeView({ onNavigate }: { onNavigate(v: ViewId): void }) {
         {bothOffline ? (
           <Card>
             <CardHeader
-              title="Connect a GPU to begin"
-              description="Run a notebook from the repo on Colab with a T4 GPU, then paste the URL it prints. Takes about four minutes."
+              title="Start a GPU to begin"
+              description="Run a notebook from the repo on Colab or Kaggle with a T4 GPU. Speech registers itself; the video notebook still prints a URL to paste. Takes about four minutes."
             />
             <div className="grid gap-6 md:grid-cols-2">
               <SpeechConnectionForm />

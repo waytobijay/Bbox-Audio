@@ -8,14 +8,14 @@
  */
 
 import { create } from "zustand";
+import { BackendError } from "./backend";
 import {
-  BackendError,
-  checkHealth,
-  cloneVoice,
-  generateChunk,
-  normalizeBackendUrl,
-  type GeneratePayload,
-} from "./backend";
+  deleteLibraryVoice,
+  fetchGatewayStatus,
+  gatewayGenerate,
+  type GatewayGenerateBody,
+  type StudioVoice,
+} from "./gateway";
 import { chunkScript } from "./chunker";
 import { DEFAULT_PARAMS, MAX_ATTEMPTS } from "./config";
 import * as db from "./db";
@@ -27,10 +27,7 @@ import type {
   GenParams,
   ModelId,
   Project,
-  Voice,
 } from "./types";
-
-const LS_BACKEND_URL = "voiceforge:backendUrl";
 
 export interface QueueState {
   running: boolean;
@@ -44,10 +41,12 @@ export interface QueueState {
 
 interface AppState {
   hydrated: boolean;
-  backendUrl: string;
   backend: BackendStatus;
   connecting: boolean;
-  voices: Voice[];
+  /** The central library, loaded from the server — not this browser. */
+  voices: StudioVoice[];
+  /** Set when storage isn't connected, so the UI can say what to do. */
+  storageHint: string | null;
   activeVoiceId: string | null;
   project: Project;
   queue: QueueState;
@@ -55,9 +54,10 @@ interface AppState {
   announcement: string;
 
   hydrate(): Promise<void>;
-  setBackendUrl(url: string): void;
+  /** Re-read which backend is live and which voices exist. */
   connect(opts?: { silent?: boolean }): Promise<boolean>;
-  addVoice(voice: Voice): Promise<void>;
+  /** Called after an upload so the new voice appears and is selected. */
+  noteNewVoice(voice: StudioVoice): Promise<void>;
   removeVoice(id: string): Promise<void>;
   setActiveVoice(id: string | null): void;
   setScript(raw: string): void;
@@ -157,37 +157,23 @@ export const useApp = create<AppState>((set, get) => {
   const setQueue = (patch: Partial<QueueState>) =>
     set((s) => ({ queue: { ...s.queue, ...patch } }));
 
-  const ensureRemoteVoice = async (voiceId: string): Promise<string> => {
-    const voice = get().voices.find((v) => v.id === voiceId);
-    if (!voice) throw new BackendError("No voice selected", "api");
-    if (voice.remoteId) return voice.remoteId;
-    const res = await cloneVoice(get().backendUrl, voice.sampleBlob, voice.transcript);
-    const updated = { ...voice, remoteId: res.voice_id };
-    set((s) => ({ voices: s.voices.map((v) => (v.id === voiceId ? updated : v)) }));
-    await db.putVoice(updated);
-    return res.voice_id;
-  };
-
-  const clearRemoteVoice = async (voiceId: string) => {
-    const voice = get().voices.find((v) => v.id === voiceId);
-    if (!voice) return;
-    const updated = { ...voice, remoteId: undefined };
-    set((s) => ({ voices: s.voices.map((v) => (v.id === voiceId ? updated : v)) }));
-    await db.putVoice(updated);
-  };
-
-  const buildPayload = (chunk: Chunk, remoteVoiceId: string): GeneratePayload => {
-    const { model, params } = get().project;
+  /**
+   * No cloning step any more. A library voice is referenced by id and the
+   * gateway caches it on whichever GPU answers — including after a Colab
+   * restart, which is exactly the case that used to force a re-clone.
+   */
+  const buildBody = (chunk: Chunk): GatewayGenerateBody => {
+    const { model, params, voiceId } = get().project;
     return {
       text: chunk.text,
-      voice_id: remoteVoiceId,
+      voiceId,
       model,
       seed: chunk.seed,
       language: params.language,
       exaggeration: params.exaggeration,
       cfg: params.cfg,
       temperature: params.temperature,
-      style_prompt: params.stylePrompt,
+      stylePrompt: params.stylePrompt,
     };
   };
 
@@ -200,7 +186,6 @@ export const useApp = create<AppState>((set, get) => {
   const runQueue = async (only: Set<string> | null) => {
     const token = ++runToken;
     setQueue({ running: true, paused: false, offline: false });
-    let recloneAttempts = 0;
 
     while (runToken === token) {
       if (get().queue.paused) {
@@ -216,9 +201,8 @@ export const useApp = create<AppState>((set, get) => {
       setQueue({ currentChunkId: chunk.id });
 
       try {
-        const remoteId = await ensureRemoteVoice(get().project.voiceId);
         const t0 = performance.now();
-        const result = await generateChunk(get().backendUrl, buildPayload(chunk, remoteId));
+        const result = await gatewayGenerate(buildBody(chunk));
         const wallSec = (performance.now() - t0) / 1000;
 
         // Save first — IndexedDB before UI, so a crash can't lose the chunk.
@@ -250,7 +234,7 @@ export const useApp = create<AppState>((set, get) => {
         const err = e instanceof BackendError ? e : new BackendError(String(e), "api");
 
         if (err.kind === "network") {
-          // Colab went away. Pause everything, lose nothing.
+          // The GPU went away. Pause everything, lose nothing.
           updateChunk(chunk.id, { status: "pending" });
           const doneCount = get().project.chunks.filter((c) => c.status === "done").length;
           setQueue({ running: false, currentChunkId: null, offline: true });
@@ -258,15 +242,8 @@ export const useApp = create<AppState>((set, get) => {
           set({
             announcement: `Backend went offline. ${doneCount} chunks are saved.`,
           });
+          toast(err.message, "error");
           return;
-        }
-
-        if (/unknown voice_id/i.test(err.message) && recloneAttempts < 2) {
-          // Colab restarted since we cloned — re-clone silently and retry.
-          recloneAttempts++;
-          await clearRemoteVoice(get().project.voiceId);
-          updateChunk(chunk.id, { status: "pending" });
-          continue;
         }
 
         const attempts = chunk.attempts + 1;
@@ -295,10 +272,10 @@ export const useApp = create<AppState>((set, get) => {
 
   return {
     hydrated: false,
-    backendUrl: "",
     backend: { connected: false, url: "", modelsLoaded: [] },
     connecting: false,
     voices: [],
+    storageHint: null,
     activeVoiceId: null,
     project: createDefaultProject(),
     queue: {
@@ -311,17 +288,11 @@ export const useApp = create<AppState>((set, get) => {
     announcement: "",
 
     async hydrate() {
-      // The backend URL lives in localStorage, so it survives even if
-      // IndexedDB is unavailable — read it first, outside the try.
-      const backendUrl =
-        typeof window !== "undefined" ? localStorage.getItem(LS_BACKEND_URL) ?? "" : "";
-
       // Storage must NEVER be able to block startup. If IndexedDB is slow,
       // blocked by another tab mid-upgrade, or disabled outright, we come up
       // with an empty session instead of leaving the user staring at
       // "Loading your session…" forever.
       try {
-        const voices = await db.getAllVoices();
         let project = await db.getFirstProject();
         if (!project) {
           project = createDefaultProject();
@@ -346,90 +317,87 @@ export const useApp = create<AppState>((set, get) => {
             }),
           };
         }
-        const activeVoiceId =
-          voices.find((v) => v.id === project!.voiceId)?.id ?? voices[0]?.id ?? null;
         set({
           hydrated: true,
-          voices,
           project: {
             ...project,
-            voiceId: activeVoiceId ?? "",
             // older saved projects predate newer params (e.g. language)
             params: { ...DEFAULT_PARAMS, ...project.params },
           },
-          activeVoiceId,
-          backendUrl,
         });
       } catch (e) {
         console.warn("[voiceforge] starting without saved data:", e);
-        set({ hydrated: true, backendUrl });
+        set({ hydrated: true });
         toast(
           "Couldn't load saved data. Close any other VoiceForge tabs and reload.",
           "error"
         );
       }
 
-      if (backendUrl) void get().connect({ silent: true });
+      // Voices and the live backend come from the server, so there's always
+      // something to fetch — no saved URL to decide on first.
+      void get().connect({ silent: true });
     },
 
-    setBackendUrl(url: string) {
-      set({ backendUrl: url });
-      if (typeof window !== "undefined") localStorage.setItem(LS_BACKEND_URL, url.trim());
-    },
-
+    /**
+     * One call answers both "where would a chunk run right now" and "which
+     * voices exist". The studio holds no URL and no clip of its own.
+     */
     async connect(opts) {
-      const url = normalizeBackendUrl(get().backendUrl);
-      if (!url) return false;
       set({ connecting: true });
       try {
-        const health = await checkHealth(url);
-        const remote = new Set(health.voices);
-        // drop remoteIds the (possibly restarted) backend no longer knows
-        const voices = get().voices.map((v) =>
-          v.remoteId && !remote.has(v.remoteId) ? { ...v, remoteId: undefined } : v
-        );
-        for (const v of voices) {
-          const before = get().voices.find((x) => x.id === v.id);
-          if (before && before.remoteId !== v.remoteId) void db.putVoice(v);
-        }
-        set({
-          connecting: false,
-          voices,
-          backend: {
-            connected: true,
-            url,
-            gpu: health.gpu,
-            modelsLoaded: health.models,
-            latencyMs: health.latencyMs,
-            mode: health.mode,
-            remoteVoices: health.voices,
-          },
-        });
-        return true;
-      } catch {
+        const status = await fetchGatewayStatus();
+        const voices = status.voices;
+
+        // Keep the current pick if it's still in the library; otherwise fall
+        // back to the default so a fresh browser can generate immediately.
+        const keep = voices.find((v) => v.id === get().project.voiceId);
+        const activeVoiceId =
+          keep?.id ?? voices.find((v) => v.isDefault)?.id ?? voices[0]?.id ?? null;
+
         set((s) => ({
           connecting: false,
-          backend: { ...s.backend, url, connected: false },
+          voices,
+          storageHint: status.hint,
+          activeVoiceId,
+          project: { ...s.project, voiceId: activeVoiceId ?? "" },
+          backend: {
+            connected: Boolean(status.backend),
+            url: status.backend?.provider ?? "",
+            gpu: status.backend?.gpu ?? undefined,
+            modelsLoaded: (status.backend?.models ?? []) as ModelId[],
+          },
         }));
-        if (!opts?.silent) {
-          toast("Couldn't reach the backend. Is the Colab tab still open?", "error");
+
+        if (!status.backend && !opts?.silent) {
+          toast("No GPU backend is online. Start a notebook, then try again.", "error");
         }
+        return Boolean(status.backend);
+      } catch {
+        set((s) => ({ connecting: false, backend: { ...s.backend, connected: false } }));
+        if (!opts?.silent) toast("Couldn't reach the server.", "error");
         return false;
       }
     },
 
-    async addVoice(voice: Voice) {
-      await db.putVoice(voice);
+    async noteNewVoice(voice: StudioVoice) {
       set((s) => ({
-        voices: [voice, ...s.voices],
+        voices: [voice, ...s.voices.filter((v) => v.id !== voice.id)],
         activeVoiceId: voice.id,
         project: { ...s.project, voiceId: voice.id },
       }));
       schedulePersist();
+      // Re-read so the default flag and ordering match the server.
+      void get().connect({ silent: true });
     },
 
     async removeVoice(id: string) {
-      await db.deleteVoice(id);
+      try {
+        await deleteLibraryVoice(id);
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Couldn't delete that voice.", "error");
+        return;
+      }
       set((s) => {
         const voices = s.voices.filter((v) => v.id !== id);
         const activeVoiceId = s.activeVoiceId === id ? voices[0]?.id ?? null : s.activeVoiceId;
@@ -482,11 +450,11 @@ export const useApp = create<AppState>((set, get) => {
       const s = get();
       if (s.queue.running) return;
       if (!s.backend.connected) {
-        toast("Connect the backend first — paste your Colab URL up top.", "error");
+        toast("No GPU backend is online. Start your notebook, then hit Refresh.", "error");
         return;
       }
       if (!s.project.voiceId) {
-        toast("Clone a voice first.", "error");
+        toast("Add a voice first.", "error");
         return;
       }
       if (s.project.chunks.length === 0) {
@@ -566,18 +534,17 @@ export const useApp = create<AppState>((set, get) => {
 
     async generateOnce(text: string, model: ModelId, seed: number) {
       const s = get();
-      const remoteId = await ensureRemoteVoice(s.project.voiceId);
       const { params } = s.project;
-      const result = await generateChunk(s.backendUrl, {
+      const result = await gatewayGenerate({
         text,
-        voice_id: remoteId,
+        voiceId: s.project.voiceId,
         model,
         seed,
         language: params.language,
         exaggeration: params.exaggeration,
         cfg: params.cfg,
         temperature: params.temperature,
-        style_prompt: params.stylePrompt,
+        stylePrompt: params.stylePrompt,
       });
       return {
         blob: result.audioBlob,

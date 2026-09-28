@@ -2,11 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { decodeAudioBlob, encodeWavPcm16, trimAudio, type PcmAudio } from "@/lib/audio";
-import { cloneVoice } from "@/lib/backend";
+import { uploadLibraryVoice } from "@/lib/gateway";
 import { SAMPLE_IDEAL_MAX_SEC, SAMPLE_IDEAL_MIN_SEC, SAMPLE_MIN_SEC } from "@/lib/config";
 import { useApp } from "@/lib/store";
 import { toast } from "@/lib/toast";
-import type { Voice } from "@/lib/types";
 import { VoiceCard } from "./VoiceCard";
 import { Waveform, type TrimRange } from "./Waveform";
 import { Button } from "./ui/Button";
@@ -32,16 +31,16 @@ const INITIAL_REC: RecorderState = {
 
 export function VoiceLab() {
   const voices = useApp((s) => s.voices);
-  const addVoice = useApp((s) => s.addVoice);
-  const backendUrl = useApp((s) => s.backendUrl);
-  const connected = useApp((s) => s.backend.connected);
+  const noteNewVoice = useApp((s) => s.noteNewVoice);
+  const storageHint = useApp((s) => s.storageHint);
+  const language = useApp((s) => s.project.params.language);
 
   const [rec, setRec] = useState<RecorderState>(INITIAL_REC);
   const [pcm, setPcm] = useState<PcmAudio | null>(null);
   const [trim, setTrim] = useState<TrimRange>({ start: 0, end: 0 });
   const [transcript, setTranscript] = useState("");
   const [name, setName] = useState("My voice");
-  const [cloning, setCloning] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const mediaRef = useRef<{
     recorder: MediaRecorder;
@@ -143,38 +142,38 @@ export function VoiceLab() {
     }
   }
 
-  async function onClone() {
+  /**
+   * Saves to the central library, not to this browser and not to one GPU
+   * session. There's no cloning step here any more: the backend caches the
+   * clip the first time it's asked to speak with it, so a voice added while
+   * every notebook is offline still works the moment one comes up.
+   */
+  async function onSave() {
     if (!pcm) return;
-    setCloning(true);
+    setSaving(true);
     try {
       const trimmed = trimAudio(pcm, trim.start, trim.end);
       const wav = encodeWavPcm16(trimmed);
-      const durationSec = trimmed.samples.length / trimmed.sampleRate;
-      const res = await cloneVoice(backendUrl, wav, transcript.trim());
-      const voice: Voice = {
-        id: crypto.randomUUID(),
-        remoteId: res.voice_id,
+      const voice = await uploadLibraryVoice({
+        wav,
         name: name.trim() || "My voice",
-        createdAt: Date.now(),
-        sampleBlob: wav,
-        sampleMime: "audio/wav",
+        language,
         transcript: transcript.trim(),
-        durationSec,
-      };
-      await addVoice(voice);
+      });
+      await noteNewVoice(voice);
       setPcm(null);
       setTranscript("");
-      toast(`Voice "${voice.name}" is ready.`, "success");
+      toast(`Voice "${voice.name}" saved to your library.`, "success");
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Clone failed.", "error");
+      toast(e instanceof Error ? e.message : "Couldn't save that voice.", "error");
     } finally {
-      setCloning(false);
+      setSaving(false);
     }
   }
 
   const trimmedSec = pcm ? trim.end - trim.start : 0;
-  const canClone =
-    !!pcm && !cloning && connected && transcript.trim().length > 0 && trimmedSec >= SAMPLE_MIN_SEC;
+  const canSave =
+    !!pcm && !saving && !storageHint && transcript.trim().length > 0 && trimmedSec >= SAMPLE_MIN_SEC;
 
   return (
     <div className="flex flex-col gap-4">
@@ -283,8 +282,8 @@ export function VoiceLab() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="primary" className="flex-1" disabled={!canClone} onClick={() => void onClone()}>
-              {cloning ? "Cloning…" : "Create voice"}
+            <Button variant="primary" className="flex-1" disabled={!canSave} onClick={() => void onSave()}>
+              {saving ? "Saving…" : "Save voice"}
             </Button>
             <Button
               variant="ghost"
@@ -296,16 +295,20 @@ export function VoiceLab() {
               Discard
             </Button>
           </div>
-          {!connected ? (
-            <p className="text-[12px] text-faint">Connect the speech engine to clone.</p>
-          ) : null}
+          {storageHint ? (
+            <p className="text-[12px] text-live">{storageHint}</p>
+          ) : (
+            <p className="text-[12px] text-faint">
+              Saved once, then cached on whichever GPU is running — no re-cloning after a restart.
+            </p>
+          )}
         </div>
       ) : null}
 
       {/* saved voices */}
       {voices.length > 0 ? (
         <div>
-          <FieldLabel>Saved voices</FieldLabel>
+          <FieldLabel>Voice library</FieldLabel>
           <div className="flex flex-col gap-2">
             {voices.map((v) => (
               <VoiceCard key={v.id} voice={v} />

@@ -20,7 +20,6 @@ const PUBLIC_PREFIXES = [
   "/api/v1", // API-key auth
   "/api/backends/register", // registration-token auth
   "/api/internal", // callback-token auth
-  "/api/proxy", // legacy studio relay (allowlisted separately)
 ];
 
 export async function middleware(req: NextRequest) {

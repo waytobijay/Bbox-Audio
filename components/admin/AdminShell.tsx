@@ -31,7 +31,7 @@ interface NavItem {
 const PLATFORM: NavItem[] = [
   { href: "/admin", label: "Dashboard", Icon: IconHome },
   { href: "/admin/backends", label: "Backends", Icon: IconLink },
-  { href: "/admin/voices", label: "Voices", Icon: IconMic, soon: true },
+  { href: "/admin/voices", label: "Voices", Icon: IconMic },
 ];
 
 const DEVELOPER: NavItem[] = [

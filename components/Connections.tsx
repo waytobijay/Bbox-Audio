@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HEALTH_POLL_MS } from "@/lib/config";
 import { useApp } from "@/lib/store";
@@ -16,56 +17,49 @@ import { Input } from "./ui/Input";
  * the app stays fully usable with only one of them live.
  */
 
+/**
+ * Speech has no URL field any more. Backends register themselves and the
+ * server picks one per request, so all this panel does is say which one would
+ * answer right now — and point at the admin page when none would.
+ */
 export function SpeechConnectionForm() {
-  const url = useApp((s) => s.backendUrl);
-  const setUrl = useApp((s) => s.setBackendUrl);
   const connect = useApp((s) => s.connect);
   const connecting = useApp((s) => s.connecting);
   const backend = useApp((s) => s.backend);
 
-  // keep an eye on the tunnel while it's up
+  // A notebook can come up at any time, so keep looking either way.
   useEffect(() => {
-    if (!backend.connected) return;
     const id = setInterval(() => void connect({ silent: true }), HEALTH_POLL_MS);
     return () => clearInterval(id);
-  }, [backend.connected, connect]);
+  }, [connect]);
 
   return (
-    <form
-      className="flex flex-col gap-2.5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void connect();
-      }}
-    >
-      <FieldLabel>Speech engine · voiceforge_server.ipynb</FieldLabel>
-      <div className="flex gap-2">
-        <Input
-          type="url"
-          inputMode="url"
-          aria-label="Speech backend URL"
-          placeholder="https://your-tunnel.trycloudflare.com"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          className="min-w-0 flex-1 font-mono text-xs"
-        />
-        <Button type="submit" disabled={connecting || !url.trim()}>
-          {connecting ? "…" : "Connect"}
-        </Button>
-      </div>
+    <div className="flex flex-col gap-2.5">
+      <FieldLabel>Speech engine · chosen in Admin → Backends</FieldLabel>
       {backend.connected ? (
         <p className="font-mono text-[11px] text-muted">
-          {backend.gpu}
-          {backend.latencyMs !== undefined ? ` · ${backend.latencyMs}ms` : ""}
+          {backend.url}
+          {backend.gpu ? ` · ${backend.gpu}` : ""}
           {backend.modelsLoaded.length ? ` · ${backend.modelsLoaded.join(", ")}` : ""}
-          {backend.mode === "proxy" ? " · via proxy" : ""}
         </p>
       ) : (
         <p className="text-[12px] leading-relaxed text-faint">
-          Run the notebook on Colab with a T4 GPU, then paste the URL it prints.
+          Nothing is online. Run <code className="font-mono">voiceforge_server.ipynb</code> on Colab
+          or Kaggle with a T4 — it registers itself within a minute.
         </p>
       )}
-    </form>
+      <div className="flex gap-2">
+        <Button onClick={() => void connect()} disabled={connecting}>
+          {connecting ? "Checking…" : "Refresh"}
+        </Button>
+        <Link
+          href="/admin/backends"
+          className="inline-flex h-10 items-center rounded-xl border border-line bg-white px-4 text-sm text-ink transition-colors hover:border-lineStrong"
+        >
+          Manage backends
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -209,7 +203,7 @@ export function ConnectionsDialog({ open, onClose }: { open: boolean; onClose():
       open={open}
       onClose={onClose}
       title="GPU connections"
-      description="Each engine runs in its own free Colab session and prints a URL. Paste them here."
+      description="Speech backends register themselves. The video notebook still prints a URL to paste."
       wide
     >
       <div className="flex flex-col gap-6">
