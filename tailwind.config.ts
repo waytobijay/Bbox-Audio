@@ -1,81 +1,101 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Design system — mirrors the Tech Notebook project: light slate ground,
+ * blue brand + violet accent, white cards with soft shadows.
+ *
+ * The token NAMES are unchanged from the previous dark theme on purpose:
+ * every component already styles itself through them, so re-pointing the
+ * values re-skins the whole app without touching each component.
+ */
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // --- surfaces: a cool charcoal ramp, each step a real elevation
-        bg: "#0A0C10",
-        surface: "#11141B",
-        surface2: "#171B24",
-        surface3: "#1F242F",
-        line: "#232834",
-        lineStrong: "#2F3644",
+        // --- ground + surfaces (slate ramp)
+        bg: "#f1f5f9",
+        surface: "#ffffff",
+        surface2: "#f8fafc",
+        surface3: "#f1f5f9",
+        line: "#e2e8f0",
+        lineStrong: "#cbd5e1",
 
         // --- type
-        ink: "#E9EBF1",
-        muted: "#98A0B2",
-        faint: "#697183",
+        ink: "#0f172a",
+        muted: "#475569",
+        faint: "#94a3b8",
 
-        // --- product accents. Speech and Video get their own hue so the two
-        // halves of the app are instantly distinguishable, while sharing one
-        // neutral system, spacing scale and component set.
-        audio: "#4ADE9F",
-        audioSoft: "#4ADE9F1F",
-        video: "#7C9BFF",
-        videoSoft: "#7C9BFF1F",
+        // --- product accents. Speech = brand blue, Video = violet.
+        // Same meaning as before, re-hued to the Tech Notebook palette.
+        audio: "#2563eb",
+        audioSoft: "#2563eb14",
+        video: "#7c3aed",
+        videoSoft: "#7c3aed14",
 
-        // --- state. `live` amber appears ONLY while something is actually
-        // recording or generating. Never decoration, never a button colour.
-        live: "#FFB454",
-        liveSoft: "#FFB4541F",
-        danger: "#FF6B6B",
-        dangerSoft: "#FF6B6B1F",
+        // --- state. `live` amber ONLY while recording/generating.
+        live: "#f59e0b",
+        liveSoft: "#f59e0b1a",
+        danger: "#ef4444",
+        dangerSoft: "#ef44441a",
+        ready: "#22c55e",
+
+        // --- brand ramp (gradients + hover shades)
+        brand: {
+          50: "#eff6ff",
+          100: "#dbeafe",
+          300: "#93c5fd",
+          400: "#60a5fa",
+          500: "#3b82f6",
+          600: "#2563eb",
+          700: "#1d4ed8",
+          950: "#172554",
+        },
+        accent: {
+          400: "#a78bfa",
+          500: "#8b5cf6",
+          600: "#7c3aed",
+        },
 
         // --- legacy aliases so nothing renders broken mid-migration
-        desk: "#0A0C10",
-        panel: "#11141B",
-        rule: "#232834",
-        text: "#E9EBF1",
-        signal: "#FFB454",
-        ready: "#4ADE9F",
+        desk: "#f1f5f9",
+        panel: "#ffffff",
+        rule: "#e2e8f0",
+        text: "#0f172a",
+        signal: "#f59e0b",
       },
       fontFamily: {
-        display: ["var(--font-space-grotesk)", "sans-serif"],
-        body: ["var(--font-inter)", "sans-serif"],
+        display: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
+        body: ["var(--font-inter)", "system-ui", "sans-serif"],
         mono: ["var(--font-jetbrains-mono)", "monospace"],
       },
       borderRadius: {
-        xl: "14px",
-        "2xl": "18px",
+        xl: "0.75rem",
+        "2xl": "1rem",
       },
       boxShadow: {
-        card: "0 1px 2px rgba(0,0,0,.35), 0 8px 24px -12px rgba(0,0,0,.55)",
-        lift: "0 2px 4px rgba(0,0,0,.3), 0 16px 40px -16px rgba(0,0,0,.65)",
-        glow: "0 0 0 1px rgba(74,222,159,.28), 0 8px 32px -12px rgba(74,222,159,.35)",
-        glowVideo: "0 0 0 1px rgba(124,155,255,.28), 0 8px 32px -12px rgba(124,155,255,.35)",
+        card: "0 1px 2px rgba(15,23,42,.05), 0 4px 12px rgba(15,23,42,.05)",
+        lift: "0 8px 20px rgba(15,23,42,.08)",
+        glow: "0 0 0 1px rgba(37,99,235,.25), 0 8px 24px -10px rgba(37,99,235,.35)",
+        glowVideo: "0 0 0 1px rgba(124,58,237,.25), 0 8px 24px -10px rgba(124,58,237,.35)",
       },
       keyframes: {
         "fade-up": {
-          from: { opacity: "0", transform: "translateY(6px)" },
+          from: { opacity: "0", transform: "translateY(10px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
-        shimmer: {
-          "100%": { transform: "translateX(100%)" },
-        },
+        shimmer: { "100%": { transform: "translateX(100%)" } },
         breathe: {
           "0%,100%": { opacity: "1" },
-          "50%": { opacity: ".45" },
+          "50%": { opacity: ".55" },
         },
-        // A travelling segment: unmistakably "working", never "stuck full".
         slide: {
           "0%": { left: "-35%" },
           "100%": { left: "100%" },
         },
       },
       animation: {
-        "fade-up": "fade-up .4s cubic-bezier(.2,.8,.3,1) both",
+        "fade-up": "fade-up .3s ease-out both",
         shimmer: "shimmer 1.6s infinite",
         breathe: "breathe 1.8s ease-in-out infinite",
         slide: "slide 1.3s ease-in-out infinite",

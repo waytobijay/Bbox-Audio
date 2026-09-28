@@ -56,7 +56,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
       >
         <span
           className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-            active ? "bg-audio text-[#06231A]" : "bg-surface3 text-faint"
+            active ? "bg-audio text-white" : "bg-surface3 text-faint"
           }`}
         >
           {active ? (

@@ -98,7 +98,7 @@ export function ScriptEditor() {
               type="checkbox"
               checked={showNormalized}
               onChange={(e) => setShowNormalized(e.target.checked)}
-              className="h-3.5 w-3.5 rounded accent-[#4ADE9F]"
+              className="h-3.5 w-3.5 rounded accent-[#2563eb]"
             />
             Show pronunciation
           </label>

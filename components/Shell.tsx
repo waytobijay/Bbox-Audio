@@ -85,12 +85,10 @@ export function Shell({
       <aside className="relative hidden w-[244px] shrink-0 flex-col border-r border-line bg-surface/50 lg:flex">
         {/* brand — sits on its own bar so it lines up with the top bar */}
         <div className="flex h-[61px] items-center gap-2.5 border-b border-line px-5">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-audio text-[#06231A]">
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-500/20">
             <IconWave className="h-4 w-4" />
           </span>
-          <span className="font-display text-[15px] font-bold tracking-tight text-ink">
-            VoiceForge
-          </span>
+          <span className="gradient-text text-[17px]">VoiceForge</span>
         </div>
 
         <nav className="flex flex-col gap-0.5 px-3 py-4" aria-label="Main">
@@ -117,10 +115,10 @@ export function Shell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-[61px] items-center gap-3 border-b border-line bg-bg/85 px-4 backdrop-blur-xl sm:px-6">
           <span className="flex items-center gap-2 lg:hidden">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-audio text-[#06231A]">
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 text-white">
               <IconWave className="h-4 w-4" />
             </span>
-            <span className="font-display text-sm font-bold text-ink">VoiceForge</span>
+            <span className="gradient-text text-base">VoiceForge</span>
           </span>
           <div className="ml-auto">
             <ConnectionsControl />

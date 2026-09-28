@@ -6,15 +6,15 @@ type Variant = "primary" | "video" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const VARIANTS: Record<Variant, string> = {
-  // Primary = the audio/brand action. Solid mint, dark ink — high contrast.
+  // Primary = the speech/brand action. Solid blue, white text.
   primary:
-    "bg-audio text-[#06231A] font-semibold hover:brightness-110 active:brightness-95 shadow-[0_4px_16px_-6px_rgba(74,222,159,.5)]",
-  // The same weight, for the video half of the product.
+    "bg-brand-600 text-white font-semibold hover:bg-brand-700 shadow-[0_4px_14px_-4px_rgba(37,99,235,.45)]",
+  // Same weight, for the video half of the product.
   video:
-    "bg-video text-[#0A1330] font-semibold hover:brightness-110 active:brightness-95 shadow-[0_4px_16px_-6px_rgba(124,155,255,.5)]",
+    "bg-accent-600 text-white font-semibold hover:bg-accent-500 shadow-[0_4px_14px_-4px_rgba(124,58,237,.45)]",
   secondary:
-    "border border-line bg-surface2 text-ink hover:border-lineStrong hover:bg-surface3",
-  ghost: "text-muted hover:text-ink hover:bg-surface2",
+    "border border-line bg-white text-ink hover:border-lineStrong hover:bg-surface2",
+  ghost: "text-muted hover:text-ink hover:bg-surface3",
   danger: "border border-danger/30 bg-dangerSoft text-danger hover:border-danger/60",
 };
 

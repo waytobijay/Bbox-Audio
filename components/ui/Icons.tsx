@@ -167,3 +167,20 @@ export const IconAlert = ({ className }: P) => (
     <path d="M12 10v4M12 16.6v.4" />
   </svg>
 );
+
+export const IconKey = ({ className }: P) => (
+  <svg {...base(className)}>
+    <circle cx="8" cy="12" r="4" />
+    <path d="M12 12h9" />
+    <path d="M17.5 12v3.5" />
+    <path d="M20.5 12v2.5" />
+  </svg>
+);
+
+export const IconServer = ({ className }: P) => (
+  <svg {...base(className)}>
+    <rect x="3.5" y="4" width="17" height="6.5" rx="2" />
+    <rect x="3.5" y="13.5" width="17" height="6.5" rx="2" />
+    <path d="M7.5 7.25h.01M7.5 16.75h.01" />
+  </svg>
+);
