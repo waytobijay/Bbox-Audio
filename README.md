@@ -2,21 +2,44 @@
 
 Clone your voice, generate hours of narration, pay nothing.
 
-The web app runs on Vercel. The AI models run on Google Colab's free GPU. You connect the two with a URL. No subscription, no API key, no credit card.
+The web app runs on Vercel. The AI models run on a free GPU you control — Google Colab, Kaggle, or Modal. The notebook registers itself, so there's no URL to copy. There's also a **REST API with keys**, so n8n and other automations can generate speech in your cloned voice.
+
+**📘 [Full step-by-step guide with screenshots-style instructions →](docs/setup-guide.html)** (open it in a browser)
 
 ---
 
-## One-time setup (≈10 minutes)
+## One-time setup (≈15 minutes)
 
 ### Step 1 — Deploy the web app
 
 1. Fork this repo on GitHub.
 2. Go to [vercel.com](https://vercel.com) → **Add New → Project** → import your fork.
 3. Framework preset: **Next.js**. Leave everything else default.
-4. Click **Deploy**. No environment variables needed.
+4. Click **Deploy**.
 5. You get a URL like `voiceforge-yourname.vercel.app`. Bookmark it.
 
-That's the app. It doesn't do anything yet — it has no engine. Next step gives it one.
+### Step 1b — Add storage and secrets
+
+In Vercel → your project:
+
+| Where | What |
+|---|---|
+| **Storage** → Marketplace | **Upstash Redis** (free) — settings, keys, backend registry, jobs |
+| **Storage** → Blob | **Vercel Blob**, access **Public** — voice clips and generated audio |
+| **Settings → Environment Variables** | `REGISTRATION_TOKEN` and `BACKEND_SECRET` — two long random strings |
+| (optional) same place | `ADMIN_PASSWORD` + `SESSION_SECRET` — turns on the login gate |
+
+Generate the random values with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+```
+
+Then **redeploy** — environment variables only reach the app on a fresh build.
+
+The login gate only switches on when **both** `ADMIN_PASSWORD` and `SESSION_SECRET` exist. That's deliberate: deploying can never lock you out of your own site before you're ready.
+
+If Blob doesn't add `BLOB_READ_WRITE_TOKEN` automatically, open the Blob store → copy the token from its `.env.local` panel → add it as an environment variable by hand.
 
 ---
 
@@ -104,6 +127,39 @@ Bad chunk? Two options:
 When you're happy: **Export WAV** (best quality, drop into your video editor) or **MP3** (smaller). You also get:
 - `chunks.zip` — every chunk as its own file, if you want to edit around them
 - `transcript.srt` — captions with real timings, free
+
+---
+
+## The API (n8n and other automations)
+
+Admin → **API Keys** → create one. It's shown once; only a SHA-256 hash is stored.
+
+Admin → **API & n8n** has every snippet with your own URL already filled in. The short version:
+
+```bash
+# 1. start a job
+curl -X POST https://your-app.vercel.app/api/v1/tts \
+  -H "Authorization: Bearer $VOICEFORGE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello from VoiceForge.","format":"mp3"}'
+# -> 202 {"job_id":"…","status_url":"…"}
+
+# 2. poll until done
+curl "$STATUS_URL" -H "Authorization: Bearer $VOICEFORGE_KEY"
+# -> {"status":"done","audio_url":"https://…mp3","duration":2.4}
+```
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/v1/voices` | list your voices |
+| `POST /api/v1/tts` | text → one stitched narration (async) |
+| `POST /api/v1/tts/batch` | many lines → one clip each, not stitched |
+| `GET /api/v1/jobs/{id}` | poll a job |
+| `POST /api/v1/audio/speech` | OpenAI-compatible, synchronous, ≤600 chars |
+
+**Why asynchronous:** a Vercel function is capped at 60 seconds and a cold GPU can use most of that before it speaks a word. So `/tts` hands back a job id immediately. Pass `callback_url` (n8n's `{{ $execution.resumeUrl }}`) and VoiceForge POSTs the finished job to you instead of you polling.
+
+Per-key **rate limits** and **monthly character quotas** are set when you create the key. Generated audio is deleted after the retention window in Settings (7 days by default).
 
 ---
 

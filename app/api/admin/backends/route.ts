@@ -37,9 +37,11 @@ const patchSchema = z.union([
     enabled: z.boolean().optional(),
     priority: z.number().int().min(0).max(99).optional(),
   }),
-  // "Custom" is the one provider an admin registers by hand.
+  // Modal and Custom are the two an admin registers by hand: Modal has a
+  // permanent URL printed by `modal deploy`, so there's nothing to
+  // self-register, and Custom is any other conforming backend.
   z.object({
-    provider: z.literal("custom"),
+    provider: z.enum(["modal", "custom"]),
     url: z.string().url().max(500),
   }),
 ]);
@@ -61,9 +63,9 @@ export async function PATCH(req: NextRequest) {
   }
 
   if ("url" in body) {
-    // Registering a custom backend by hand still goes through the same path
-    // as self-registration, so there's one code path for liveness.
-    const row = await registerBackend({ provider: "custom", url: body.url });
+    // Registering by hand still goes through the same path as
+    // self-registration, so there's one code path for liveness.
+    const row = await registerBackend({ provider: body.provider, url: body.url });
     return NextResponse.json({ ok: true, backend: row });
   }
 

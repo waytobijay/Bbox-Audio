@@ -64,7 +64,8 @@ function ago(seconds: number): string {
 export function BackendsManager({ appUrl }: { appUrl: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [customUrl, setCustomUrl] = useState("");
+  /** Pasted URLs, per provider — Modal and Custom each have their own field. */
+  const [urlDrafts, setUrlDrafts] = useState<Partial<Record<BackendProvider, string>>>({});
 
   const load = useCallback(async () => {
     try {
@@ -286,21 +287,30 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
                   <p className="text-[14px] font-medium text-ink">{PROVIDER_LABEL[p]}</p>
                   <p className="mt-0.5 text-[12.5px] text-muted">{PROVIDER_BLURB[p]}</p>
                 </div>
-                {p === "custom" ? (
+                {/* Modal and Custom take a URL you paste: Modal's is permanent
+                    and printed by `modal deploy`, so it never self-registers.
+                    Colab and Kaggle do register themselves. */}
+                {p === "custom" || p === "modal" ? (
                   <div className="flex w-full gap-2 sm:w-auto">
                     <Input
                       type="url"
-                      placeholder="https://your-backend…"
-                      value={customUrl}
-                      onChange={(e) => setCustomUrl(e.target.value)}
+                      placeholder={
+                        p === "modal" ? "https://…--api.modal.run" : "https://your-backend…"
+                      }
+                      value={urlDrafts[p] ?? ""}
+                      onChange={(e) =>
+                        setUrlDrafts((d) => ({ ...d, [p]: e.target.value }))
+                      }
                       className="min-w-0 flex-1 font-mono text-xs sm:w-72"
                     />
                     <Button
                       size="sm"
-                      disabled={!customUrl.trim() || busy !== null}
+                      disabled={!(urlDrafts[p] ?? "").trim() || busy !== null}
                       onClick={async () => {
-                        if (await patch({ provider: "custom", url: customUrl.trim() }, "custom"))
-                          setCustomUrl("");
+                        const url = (urlDrafts[p] ?? "").trim();
+                        if (await patch({ provider: p, url }, p)) {
+                          setUrlDrafts((d) => ({ ...d, [p]: "" }));
+                        }
                       }}
                     >
                       Add

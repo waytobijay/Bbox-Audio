@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceForge Setup Guide</title>
+<style>
+  :root {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --line: #e2e8f0;
+    --line-strong: #cbd5e1;
+    --ink: #0f172a;
+    --muted: #475569;
+    --faint: #94a3b8;
+    --brand: #2563eb;
+    --brand-dark: #1d4ed8;
+    --brand-soft: #eff6ff;
+    --violet: #7c3aed;
+    --violet-soft: #f5f3ff;
+    --amber: #f59e0b;
+    --amber-soft: #fffbeb;
+    --green: #16a34a;
+    --green-soft: #f0fdf4;
+    --red: #dc2626;
+    --red-soft: #fef2f2;
+    --radius: 14px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1120;
+      --surface: #111827;
+      --surface2: #0f172a;
+      --line: #1f2937;
+      --line-strong: #334155;
+      --ink: #e2e8f0;
+      --muted: #94a3b8;
+      --faint: #64748b;
+      --brand-soft: #172554;
+      --violet-soft: #2e1065;
+      --amber-soft: #291c06;
+      --green-soft: #052e16;
+      --red-soft: #300b0b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1120;
+    --surface: #111827;
+    --surface2: #0f172a;
+    --line: #1f2937;
+    --line-strong: #334155;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --faint: #64748b;
+    --brand-soft: #172554;
+    --violet-soft: #2e1065;
+    --amber-soft: #291c06;
+    --green-soft: #052e16;
+    --red-soft: #300b0b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .layout { display: flex; max-width: 1240px; margin: 0 auto; }
+
+  /* --- sidebar --- */
+  nav.toc {
+    position: sticky; top: 0; align-self: flex-start;
+    width: 262px; flex: none; height: 100vh; overflow-y: auto;
+    padding: 26px 16px 40px; border-right: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; padding: 0 8px; }
+  .brand-badge {
+    width: 32px; height: 32px; border-radius: 10px; flex: none;
+    background: linear-gradient(135deg, var(--brand), var(--violet));
+    display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 15px;
+  }
+  .brand-name {
+    font-weight: 700; font-size: 17px; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--brand), var(--violet));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .toc-head {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--faint); margin: 18px 0 6px; padding: 0 8px;
+  }
+  nav.toc a {
+    display: block; padding: 6px 10px; border-radius: 8px; margin-bottom: 1px;
+    color: var(--muted); text-decoration: none; font-size: 13.5px;
+  }
+  nav.toc a:hover { background: var(--surface2); color: var(--ink); }
+  nav.toc a.active { background: var(--brand-soft); color: var(--brand-dark); font-weight: 600; }
+
+  /* --- content --- */
+  main { flex: 1; min-width: 0; padding: 34px 40px 120px; }
+
+  header.hero { margin-bottom: 34px; }
+  header.hero h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.025em; margin: 0 0 10px; }
+  header.hero p { font-size: 16px; color: var(--muted); margin: 0; max-width: 62ch; }
+
+  section { margin-bottom: 46px; scroll-margin-top: 20px; }
+  h2 {
+    font-size: 21px; letter-spacing: -0.02em; margin: 0 0 6px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--line);
+  }
+  h2 .num {
+    display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px;
+    background: var(--brand); color: #fff; font-size: 13px; font-weight: 700;
+    margin-right: 9px; vertical-align: 2px;
+  }
+  h3 { font-size: 16px; margin: 26px 0 8px; letter-spacing: -0.01em; }
+  p { margin: 10px 0; color: var(--muted); }
+  p strong, li strong { color: var(--ink); }
+  a { color: var(--brand); }
+
+  ol, ul { margin: 10px 0; padding-left: 22px; color: var(--muted); }
+  li { margin: 6px 0; }
+  ol.steps { counter-reset: s; list-style: none; padding-left: 0; }
+  ol.steps > li {
+    counter-increment: s; position: relative; padding-left: 38px; margin: 14px 0;
+  }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 25px; height: 25px; border-radius: 50%;
+    background: var(--surface); border: 1.5px solid var(--line-strong);
+    color: var(--ink); font-size: 12.5px; font-weight: 700;
+    display: grid; place-items: center;
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.875em; background: var(--surface2); border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 5px; color: var(--ink);
+  }
+
+  .code { position: relative; margin: 12px 0; }
+  .code pre {
+    margin: 0; padding: 14px 52px 14px 15px; overflow-x: auto;
+    background: var(--surface2); border: 1px solid var(--line); border-radius: var(--radius);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.6; color: var(--ink);
+  }
+  .code pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  .copy {
+    position: absolute; top: 9px; right: 9px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 7px; padding: 4px 9px; font-size: 11.5px; cursor: pointer;
+    font-family: inherit;
+  }
+  .copy:hover { border-color: var(--line-strong); color: var(--ink); }
+  .copy.done { color: var(--green); border-color: var(--green); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px 18px; margin: 14px 0;
+  }
+
+  .note, .warn, .ok {
+    border-radius: var(--radius); padding: 13px 16px; margin: 14px 0;
+    border: 1px solid; font-size: 14px;
+  }
+  .note { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
+  .warn { background: var(--amber-soft); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  .ok   { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 30%, transparent); }
+  .note p, .warn p, .ok p { margin: 5px 0; color: var(--ink); }
+  .note :first-child, .warn :first-child, .ok :first-child { margin-top: 0; }
+  .note :last-child, .warn :last-child, .ok :last-child { margin-bottom: 0; }
+  .label { font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+  td { color: var(--muted); }
+  td:first-child { color: var(--ink); font-weight: 600; white-space: nowrap; }
+
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .pill.get  { background: var(--brand-soft); color: var(--brand-dark); }
+  .pill.post { background: var(--violet-soft); color: var(--violet); }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); margin: 14px 0; }
+  .grid .card { margin: 0; }
+  .card h4 { margin: 0 0 4px; font-size: 14.5px; }
+  .card p { margin: 0; font-size: 13px; }
+
+  .btn {
+    display: inline-block; margin: 4px 8px 4px 0; padding: 8px 14px;
+    background: var(--brand); color: #fff; text-decoration: none;
+    border-radius: 9px; font-size: 13.5px; font-weight: 600;
+  }
+  .btn.alt { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); }
+
+  footer { border-top: 1px solid var(--line); padding-top: 18px; color: var(--faint); font-size: 13px; }
+
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { padding: 24px 16px 80px; }
+    header.hero h1 { font-size: 27px; }
+    /* A nowrap first column would otherwise push the page sideways on a
+       phone; let it wrap and scroll the table itself if it still can't fit. */
+    table { display: block; overflow-x: auto; }
+    td:first-child { white-space: normal; }
+  }
+  @media print {
+    nav.toc, .copy { display: none; }
+    body { background: #fff; }
+    main { padding: 0; }
+    section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="brand">
+    <span class="brand-badge">V</span>
+    <span class="brand-name">VoiceForge</span>
+  </div>
+  <div class="toc-head">Start here</div>
+  <a href="#overview">What you're building</a>
+  <a href="#deploy">1. Deploy to Vercel</a>
+  <a href="#storage">2. Add storage</a>
+  <a href="#secrets">3. Add secrets</a>
+  <a href="#login">4. Admin login</a>
+  <div class="toc-head">Connect a GPU</div>
+  <a href="#which-backend">Which one to use</a>
+  <a href="#colab">Google Colab</a>
+  <a href="#kaggle">Kaggle</a>
+  <a href="#modal">Modal</a>
+  <a href="#custom">Custom URL</a>
+  <a href="#switching">Switching &amp; fallback</a>
+  <div class="toc-head">Use it</div>
+  <a href="#voice">5. Add your voice</a>
+  <a href="#studio">6. Make narration</a>
+  <div class="toc-head">Automate</div>
+  <a href="#keys">7. Create an API key</a>
+  <a href="#api">8. The API</a>
+  <a href="#n8n-poll">9. n8n — polling</a>
+  <a href="#n8n-callback">10. n8n — callback</a>
+  <a href="#n8n-batch">11. n8n — batch</a>
+  <a href="#openai">12. OpenAI-compatible</a>
+  <div class="toc-head">Reference</div>
+  <a href="#reconnect">Reconnecting</a>
+  <a href="#troubleshooting">Troubleshooting</a>
+  <a href="#limits">Honest limits</a>
+</nav>
+
+<main>
+
+<header class="hero">
+  <h1>VoiceForge — complete setup guide</h1>
+  <p>
+    From an empty Vercel account to generating narration in your own cloned voice from n8n.
+    Follow it top to bottom the first time; after that you only ever repeat
+    <a href="#reconnect">Reconnecting</a>.
+  </p>
+</header>
+
+<section id="overview">
+  <h2>What you're building</h2>
+  <p>Three pieces, each free:</p>
+  <div class="grid">
+    <div class="card">
+      <h4>The web app</h4>
+      <p>Next.js on Vercel. Studio, admin panel and public API. Has <strong>no GPU</strong> — it never runs a model.</p>
+    </div>
+    <div class="card">
+      <h4>Storage</h4>
+      <p>Upstash Redis for settings, keys, jobs and the backend registry. Vercel Blob for voice clips and finished audio.</p>
+    </div>
+    <div class="card">
+      <h4>A GPU backend</h4>
+      <p>Colab, Kaggle or Modal running the speech model. It <strong>registers itself</strong> with your app.</p>
+    </div>
+  </div>
+  <p>
+    The important idea: <strong>you never copy a tunnel URL</strong>. The notebook tells the app where it
+    is and keeps a heartbeat going. The app picks whichever backend is healthy when a request arrives.
+  </p>
+</section>
+
+<section id="deploy">
+  <h2><span class="num">1</span>Deploy to Vercel</h2>
+  <ol class="steps">
+    <li>Fork <code>waytobijay/Bbox-Audio</code> on GitHub (skip if it's already yours).</li>
+    <li>Go to <a href="https://vercel.com/new">vercel.com/new</a> → import the repo.</li>
+    <li>Framework preset <strong>Next.js</strong>. Leave everything else alone.</li>
+    <li>Click <strong>Deploy</strong> and wait for the build.</li>
+    <li>Note your URL, e.g. <code>https://audio.example.com</code>. You'll paste it into the notebook later.</li>
+  </ol>
+  <div class="note">
+    <p><span class="label">The app works with nothing configured.</span> It'll tell you what's missing rather than crash. That's deliberate — you can never lock yourself out of your own deployment.</p>
+  </div>
+</section>
+
+<section id="storage">
+  <h2><span class="num">2</span>Add storage</h2>
+
+  <h3>Upstash Redis</h3>
+  <ol class="steps">
+    <li>Vercel → your project → <strong>Storage</strong> → <strong>Create Database</strong> → Marketplace → <strong>Upstash&nbsp;→&nbsp;Redis</strong>.</li>
+    <li>Region: <strong>Washington, D.C. (us-east-1)</strong> — that's where your functions run, so reads stay fast.</li>
+    <li>Leave <strong>Eviction off</strong>. Eviction silently drops old keys when full, which would quietly delete your voice metadata or API keys.</li>
+    <li>Plan: <strong>Free</strong>. Create, and connect it to the project.</li>
+  </ol>
+
+  <h3>Vercel Blob</h3>
+  <ol class="steps">
+    <li>Storage → <strong>Create Database</strong> → <strong>Blob</strong>.</li>
+    <li>Name it <code>voiceforge-blob</code>, region <strong>iad1</strong>.</li>
+    <li>Access: <strong>Public</strong>.</li>
+    <li>Create, and connect it to the project.</li>
+  </ol>
+  <div class="warn">
+    <p><span class="label">Public is required, not a shortcut.</span> Your GPU backend downloads the voice clip straight from its URL with no token, and the browser plays it the same way. Private would break both. File paths carry a random suffix, so they aren't guessable.</p>
+  </div>
+  <div class="warn">
+    <p><span class="label">If <code>BLOB_READ_WRITE_TOKEN</code> doesn't appear</span> in your environment variables, open the Blob store, find the <code>.env.local</code> panel, reveal and copy the token, then add it by hand in <strong>Settings → Environment Variables</strong>.</p>
+  </div>
+</section>
+
+<section id="secrets">
+  <h2><span class="num">3</span>Add secrets</h2>
+  <p>Generate two long random strings:</p>
+  <div class="code"><pre><code>node -e "console.log('REGISTRATION_TOKEN=' + require('crypto').randomBytes(24).toString('hex')); console.log('BACKEND_SECRET=' + require('crypto').randomBytes(24).toString('hex'))"</code></pre></div>
+  <p>Add both in <strong>Settings → Environment Variables</strong>, ticked for Production, Preview and Development:</p>
+  <table>
+    <tr><th>Variable</th><th>What it does</th></tr>
+    <tr><td>REGISTRATION_TOKEN</td><td>A notebook must present this to register itself. Stops a stranger pointing your app at their machine.</td></tr>
+    <tr><td>BACKEND_SECRET</td><td>Shared secret the app sends to your GPU on every call. The backend rejects anything else.</td></tr>
+  </table>
+  <div class="warn">
+    <p><span class="label">Never commit these.</span> In particular, if you press Colab's <em>Save a copy in GitHub</em> after filling in Cell&nbsp;0, your secrets go into the repo. If that happens, rotate both values in Vercel — that makes the leaked pair worthless immediately.</p>
+  </div>
+  <p>Then <strong>redeploy</strong>: Deployments → top entry → ⋯ → <strong>Redeploy</strong>. Environment variables only reach the app on a fresh build.</p>
+</section>
+
+<section id="login">
+  <h2><span class="num">4</span>Admin login <span style="font-weight:400;color:var(--faint);font-size:15px">(optional but recommended)</span></h2>
+  <p>Until you set these, your site is public. Add both to turn the gate on:</p>
+  <table>
+    <tr><th>Variable</th><th>Value</th></tr>
+    <tr><td>ADMIN_PASSWORD</td><td>Whatever you'll type at the login screen.</td></tr>
+    <tr><td>SESSION_SECRET</td><td>Another long random hex string. Rotating it signs out every session.</td></tr>
+  </table>
+  <p>Redeploy, then visit <code>/login</code>. The session lasts 12 hours.</p>
+  <div class="note">
+    <p>The gate only activates when <strong>both</strong> exist. One without the other leaves the app open — that's a safety valve, not a bug.</p>
+  </div>
+</section>
+
+<section id="which-backend">
+  <h2>Which backend should you use?</h2>
+  <table>
+    <tr><th>Backend</th><th>Cost</th><th>Stays up?</th><th>Best for</th></tr>
+    <tr><td>Google Colab</td><td>Free</td><td>~5 h, tab must stay open</td><td>Day-to-day work at your desk</td></tr>
+    <tr><td>Kaggle</td><td>Free, 30 h/week</td><td>~9–12 h per session</td><td>Long batches; a second free GPU</td></tr>
+    <tr><td>Modal</td><td>~$5/mo free credit</td><td>Always reachable, sleeps at zero</td><td>Automations that must work unattended</td></tr>
+    <tr><td>Custom</td><td>Yours</td><td>Yours</td><td>Any machine that speaks the contract</td></tr>
+  </table>
+  <div class="note">
+    <p><span class="label">For n8n, use Modal.</span> Colab and Kaggle need a human to press <em>Run all</em>; no button anywhere can start them, because neither platform offers an API for it. Modal wakes itself on the first request.</p>
+  </div>
+</section>
+
+<section id="colab">
+  <h2>Connect Google Colab</h2>
+  <ol class="steps">
+    <li>In your app, open <strong>Admin → Backends</strong> and click <strong>Open in Colab</strong>. (Direct link below if you prefer.)</li>
+    <li><strong>Runtime → Change runtime type → T4 GPU → Save.</strong> Without this nothing works.</li>
+    <li>Fill in <strong>Cell 0</strong> with your three values:
+      <div class="code"><pre><code>VOICEFORGE_APP_URL = "https://your-app.vercel.app"
+REGISTRATION_TOKEN = "the value you set in Vercel"
+BACKEND_SECRET     = "the other value you set in Vercel"</code></pre></div>
+    </li>
+    <li>Run <strong>Cell 0</strong>, then <strong>Cell 1</strong>. Cell 1 takes 3–10 minutes and prints a wall of red <code>pip</code> conflict lines about jax, opencv and cupy — <strong>expected and harmless</strong>; that's Colab's preinstalled data-science stack, which this backend never imports.</li>
+    <li><strong>Runtime → Restart session.</strong> This is required: the kernel is still holding the numpy it imported at startup.</li>
+    <li>Run <strong>Cell 0</strong> again, then <strong>Cell 2</strong>. It should end with <code>models ready: ['chatterbox']</code>.</li>
+    <li>Run <strong>Cell 3</strong>. It opens a tunnel and registers itself.</li>
+  </ol>
+  <p><a class="btn" href="https://colab.research.google.com/github/waytobijay/Bbox-Audio/blob/main/colab/voiceforge_server.ipynb">Open the notebook in Colab</a></p>
+  <div class="ok">
+    <p><span class="label">Success looks like this:</span></p>
+    <div class="code"><pre><code>tunnel: https://some-words-here.trycloudflare.com
+==============================================================
+  REGISTERED — nothing to copy. Check Admin -&gt; Backends.
+  provider: colab   heartbeat: every 60s
+==============================================================</code></pre></div>
+    <p>Within about a minute the Colab card in <strong>Admin → Backends</strong> turns <strong>Online</strong>. Press <strong>Test</strong> to confirm it answers.</p>
+  </div>
+  <div class="warn">
+    <p><span class="label">Leave the Colab tab open.</span> Close it and the backend dies. The tunnel URL is different every session — you never see it, because the notebook re-registers and heartbeats every 60 seconds.</p>
+  </div>
+</section>
+
+<section id="kaggle">
+  <h2>Connect Kaggle</h2>
+  <p>Same notebook, and you can keep it running alongside Colab as a second free GPU.</p>
+  <ol class="steps">
+    <li>Go to <a href="https://www.kaggle.com/code">kaggle.com/code</a> → <strong>New Notebook</strong> → <strong>File → Import Notebook</strong> → paste the GitHub URL of <code>colab/voiceforge_server.ipynb</code>.</li>
+    <li>Right panel → <strong>Accelerator → GPU T4 x2</strong>.</li>
+    <li>Right panel → <strong>Internet → On</strong>. Without this the notebook can't register or download models.</li>
+    <li>Optional but tidier: <strong>Add-ons → Secrets</strong>, add <code>VOICEFORGE_APP_URL</code>, <code>REGISTRATION_TOKEN</code> and <code>BACKEND_SECRET</code>, then leave Cell 0's three lines empty — the notebook reads them from Secrets automatically.</li>
+    <li>Run Cell 0 → Cell 1 → <strong>restart the session</strong> → Cell 0 → Cell 2 → Cell 3, exactly as for Colab.</li>
+  </ol>
+  <div class="note">
+    <p>Kaggle gives you <strong>30 GPU-hours a week</strong> and longer sessions than Colab. Your voice library is shared, so a voice added anywhere works on both.</p>
+  </div>
+</section>
+
+<section id="modal">
+  <h2>Connect Modal <span style="font-weight:400;color:var(--faint);font-size:15px">(the always-on option)</span></h2>
+  <p>Modal gives you a permanent HTTPS URL that scales to zero — no tab to keep open, and nothing to press. This is what makes unattended n8n workflows practical.</p>
+  <ol class="steps">
+    <li>Sign up at <a href="https://modal.com">modal.com</a>. The free credit (about $5/month) covers light use, and no card is required.</li>
+    <li>Install and authenticate:
+      <div class="code"><pre><code>pip install modal
+modal token new</code></pre></div>
+    </li>
+    <li>Give Modal the same backend secret you put in Vercel:
+      <div class="code"><pre><code>modal secret create voiceforge-backend BACKEND_SECRET=&lt;your BACKEND_SECRET&gt;</code></pre></div>
+    </li>
+    <li>Deploy from inside the repo:
+      <div class="code"><pre><code>modal deploy modal/voiceforge_modal.py</code></pre></div>
+      It prints a URL ending in <code>.modal.run</code>.
+    </li>
+    <li>In <strong>Admin → Backends</strong>, find <strong>Modal</strong> under “Not connected yet”, paste that URL, and press <strong>Add</strong>.</li>
+  </ol>
+
+  <h3>Automatic redeploys (optional)</h3>
+  <p>The repo ships a GitHub Action that redeploys Modal whenever <code>backend/</code> or <code>modal/</code> changes. Add two repository secrets under <strong>Settings → Secrets and variables → Actions</strong>:</p>
+  <table>
+    <tr><th>Secret</th><th>Where from</th></tr>
+    <tr><td>MODAL_TOKEN_ID</td><td rowspan="2">Printed by <code>modal token new</code>, or Modal dashboard → Settings → API Tokens</td></tr>
+    <tr><td>MODAL_TOKEN_SECRET</td></tr>
+  </table>
+  <div class="note">
+    <p><span class="label">Cold starts.</span> After ~2 minutes idle, Modal shuts the GPU down. The next request waits roughly a minute while it wakes. That's why every API endpoint except <code>/audio/speech</code> is asynchronous — see <a href="#api">The API</a>.</p>
+    <p>Health checks are served by a separate CPU-only function, so the admin page polling status never wakes the GPU or burns credit.</p>
+  </div>
+</section>
+
+<section id="custom">
+  <h2>Connect a custom backend</h2>
+  <p>Anything that implements the contract works: your own server, a rented GPU, a different tunnel. In <strong>Admin → Backends</strong>, paste the URL under <strong>Custom URL</strong> → <strong>Add</strong>. It must send the same <code>BACKEND_SECRET</code> and implement:</p>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td><span class="pill get">GET</span></td><td><code>/health</code></td><td>Status, GPU name, loaded models, busy flag</td></tr>
+    <tr><td><span class="pill post">PUT</span></td><td><code>/voices/{id}</code></td><td>Download and cache a reference clip</td></tr>
+    <tr><td><span class="pill post">POST</span></td><td><code>/generate</code></td><td>One chunk; answer <code>409 voice_not_cached</code> if unknown</td></tr>
+    <tr><td><span class="pill post">POST</span></td><td><code>/jobs</code></td><td>Background render of a whole script</td></tr>
+    <tr><td><span class="pill get">GET</span></td><td><code>/jobs/{id}/audio/{n}</code></td><td>Hand back a finished file</td></tr>
+  </table>
+  <p>The reference implementation is <code>backend/voiceforge_server.py</code> — the same file Colab, Kaggle and Modal all run.</p>
+</section>
+
+<section id="switching">
+  <h2>Switching and fallback</h2>
+  <p>At the top of <strong>Admin → Backends</strong> you choose what's active:</p>
+  <ul>
+    <li><strong>Auto</strong> — use the first healthy backend by priority (Modal, then Colab, then Kaggle, then Custom). If one dies, the next takes over with no action from you.</li>
+    <li><strong>A specific provider</strong> — pin everything to that one. If it's offline, requests fail with a clear message rather than quietly going elsewhere.</li>
+  </ul>
+  <p>A backend is marked <strong>Offline</strong> after three missed heartbeats (about three minutes). <strong>Disable</strong> keeps a backend registered but out of rotation, and that choice survives the notebook re-registering.</p>
+</section>
+
+<section id="voice">
+  <h2><span class="num">5</span>Add your voice</h2>
+  <p>Go to <strong>Admin → Voices</strong> (or use the Voice panel in the studio).</p>
+  <ol class="steps">
+    <li>Record or upload <strong>15–20 seconds</strong> of clean speech — quiet room, no music, natural pace. A phone mic is fine.</li>
+    <li>Type the <strong>transcript</strong>: exactly what's said, word for word. This matters more than you'd expect; the clone is noticeably worse without it.</li>
+    <li>Pick the language, name it, and save.</li>
+  </ol>
+  <div class="ok">
+    <p><span class="label">Clone once, forever.</span> The clip is stored centrally and cached onto whichever GPU is running the first time it's used. A Colab restart, a switch to Modal, a different browser — none of them need a re-clone.</p>
+  </div>
+  <p>The first voice you add becomes the <strong>default</strong>, which is what API calls use when they don't name one.</p>
+  <div class="warn">
+    <p><span class="label">Ethics, and this isn't a formality.</span> Clone your own voice, or one you have explicit permission to clone. In most jurisdictions synthesising someone's voice without consent is illegal, and it's a genuinely harmful thing to do regardless.</p>
+  </div>
+</section>
+
+<section id="studio">
+  <h2><span class="num">6</span>Make narration in the studio</h2>
+  <ol class="steps">
+    <li>Open the app root and choose <strong>Text to Speech</strong>.</li>
+    <li>Paste your script, or drop in a <code>.txt</code> / <code>.md</code> file. It's split into chunks automatically — check the split before generating.</li>
+    <li>Pick your voice and language. Adjust expressiveness only if you need to; the defaults are tuned for narration.</li>
+    <li>Press <strong>Generate</strong>. Chunks render one at a time and each is saved the moment it finishes.</li>
+    <li>Export as WAV, MP3 or SRT.</li>
+  </ol>
+  <div class="note">
+    <p>If the GPU disappears mid-run, everything already generated is kept. Start the backend again and resume — nothing is lost.</p>
+  </div>
+</section>
+
+<section id="keys">
+  <h2><span class="num">7</span>Create an API key</h2>
+  <ol class="steps">
+    <li><strong>Admin → API Keys</strong>.</li>
+    <li>Name it after the thing that will use it, e.g. <code>n8n</code>. One key per integration means you can revoke one without breaking the others.</li>
+    <li>Optionally set <strong>requests per minute</strong> and a <strong>monthly character quota</strong>. Blank means the default (60/min, unlimited characters).</li>
+    <li>Press <strong>Create key</strong> and <strong>copy it now</strong>.</li>
+  </ol>
+  <div class="warn">
+    <p><span class="label">Shown once, never again.</span> Only a SHA-256 hash is stored, so a lost key can't be recovered — revoke it and make another. Revoking takes effect on the very next request.</p>
+  </div>
+</section>
+
+<section id="api">
+  <h2><span class="num">8</span>The API</h2>
+  <p>Base URL is <code>https://your-app.vercel.app/api/v1</code>. Every request carries:</p>
+  <div class="code"><pre><code>Authorization: Bearer vf_live_…</code></pre></div>
+
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>Does</th></tr>
+    <tr><td><span class="pill get">GET</span></td><td><code>/voices</code></td><td>List your voices and which is default</td></tr>
+    <tr><td><span class="pill post">POST</span></td><td><code>/tts</code></td><td>Text → one stitched narration. Returns a job id.</td></tr>
+    <tr><td><span class="pill post">POST</span></td><td><code>/tts/batch</code></td><td>Many lines → one clip each, not stitched</td></tr>
+    <tr><td><span class="pill get">GET</span></td><td><code>/jobs/{id}</code></td><td>Poll a job</td></tr>
+    <tr><td><span class="pill post">POST</span></td><td><code>/audio/speech</code></td><td>OpenAI-compatible, synchronous, ≤600 characters</td></tr>
+  </table>
+
+  <div class="note">
+    <p><span class="label">Why everything is asynchronous.</span> A Vercel function is capped at 60 seconds, and a cold Modal container can use most of that before it speaks a word. So <code>/tts</code> hands back a job id immediately and the render continues on the GPU. Only <code>/audio/speech</code> is synchronous, which is exactly why it's capped at 600 characters.</p>
+  </div>
+
+  <h3>Start a job</h3>
+  <div class="code"><pre><code>curl -X POST https://your-app.vercel.app/api/v1/tts \
+  -H "Authorization: Bearer $VOICEFORGE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello from VoiceForge.","format":"mp3"}'</code></pre></div>
+  <div class="code"><pre><code>{
+  "job_id": "8f1c…",
+  "status": "running",
+  "status_url": "https://your-app.vercel.app/api/v1/jobs/8f1c…",
+  "chars": 24,
+  "chunks": 1,
+  "backend": "modal"
+}</code></pre></div>
+
+  <h3>Poll it</h3>
+  <div class="code"><pre><code>curl https://your-app.vercel.app/api/v1/jobs/8f1c… \
+  -H "Authorization: Bearer $VOICEFORGE_KEY"</code></pre></div>
+  <div class="code"><pre><code>{
+  "job_id": "8f1c…",
+  "status": "done",
+  "duration": 2.4,
+  "audio_url": "https://….blob.vercel-storage.com/jobs/8f1c….mp3"
+}</code></pre></div>
+  <p><code>audio_url</code> is an ordinary HTTPS file — download it with any HTTP client. It's deleted after the retention window in <strong>Settings</strong> (7 days by default).</p>
+
+  <h3>Request options for <code>/tts</code></h3>
+  <table>
+    <tr><th>Field</th><th>Meaning</th></tr>
+    <tr><td>text</td><td>Required. Up to 50,000 characters.</td></tr>
+    <tr><td>voice_id</td><td>Optional. Defaults to your default voice.</td></tr>
+    <tr><td>language</td><td>Optional ISO code, e.g. <code>en</code>, <code>hi</code>. Defaults to the voice's language.</td></tr>
+    <tr><td>format</td><td><code>mp3</code> (default) or <code>wav</code>.</td></tr>
+    <tr><td>callback_url</td><td>Optional. We POST the finished job here instead of you polling.</td></tr>
+    <tr><td>params</td><td>Optional overrides: <code>seed</code>, <code>exaggeration</code>, <code>cfg</code>, <code>temperature</code>.</td></tr>
+  </table>
+
+  <h3>Errors</h3>
+  <div class="code"><pre><code>{ "error": { "message": "…", "code": "rate_limit_exceeded", "type": "voiceforge_error" } }</code></pre></div>
+  <table>
+    <tr><th>Code</th><th>Means</th></tr>
+    <tr><td>401 invalid_api_key</td><td>Missing, wrong or revoked key.</td></tr>
+    <tr><td>404 unknown_voice</td><td>That voice id isn't in the library.</td></tr>
+    <tr><td>429 rate_limit_exceeded</td><td>Too many requests this minute. Honour <code>Retry-After</code>.</td></tr>
+    <tr><td>429 quota_exceeded</td><td>The key's monthly character quota is spent.</td></tr>
+    <tr><td>503 no_backend</td><td>No GPU is online. Start a notebook.</td></tr>
+  </table>
+</section>
+
+<section id="n8n-poll">
+  <h2><span class="num">9</span>n8n — the polling workflow</h2>
+  <p>This works on every n8n, including n8n Cloud, because VoiceForge never has to reach back to you.</p>
+
+  <h3>Credential (do this once)</h3>
+  <ol class="steps">
+    <li><strong>Credentials → New → Header Auth.</strong></li>
+    <li>Name: <code>Authorization</code></li>
+    <li>Value: <code>Bearer vf_live_…</code> (include the word Bearer and a space)</li>
+  </ol>
+
+  <h3>Nodes</h3>
+  <ol class="steps">
+    <li><strong>HTTP Request</strong> — name it <code>Start TTS</code>
+      <ul>
+        <li>Method <strong>POST</strong>, URL <code>https://your-app.vercel.app/api/v1/tts</code></li>
+        <li>Authentication → <em>Generic Credential Type</em> → <em>Header Auth</em> → the credential above</li>
+        <li>Send Body → <strong>JSON</strong>:</li>
+      </ul>
+      <div class="code"><pre><code>{
+  "text": "{{ $json.script }}",
+  "format": "mp3"
+}</code></pre></div>
+    </li>
+    <li><strong>Wait</strong> — 10 seconds.</li>
+    <li><strong>HTTP Request</strong> — name it <code>Check Job</code>
+      <ul>
+        <li>Method <strong>GET</strong>, same Header Auth credential</li>
+        <li>URL:</li>
+      </ul>
+      <div class="code"><pre><code>{{ $('Start TTS').item.json.status_url }}</code></pre></div>
+    </li>
+    <li><strong>IF</strong> — condition: <code>{{ $json.status }}</code> <em>equals</em> <code>done</code>.
+      <ul>
+        <li><strong>false</strong> branch → back to the <strong>Wait</strong> node (that's the loop)</li>
+        <li><strong>true</strong> branch → continue</li>
+      </ul>
+    </li>
+    <li><strong>HTTP Request</strong> — name it <code>Download Audio</code>
+      <ul>
+        <li>Method <strong>GET</strong>, URL <code>{{ $json.audio_url }}</code></li>
+        <li><strong>No authentication</strong> — it's a public file URL</li>
+        <li>Response → Format: <strong>File</strong></li>
+      </ul>
+    </li>
+  </ol>
+  <p>You now have the MP3 as binary data, ready for Google Drive, Telegram, an FFmpeg node, or wherever it's going.</p>
+  <div class="note">
+    <p><span class="label">Handle failure too.</span> Add a second IF for <code>{{ $json.status }}</code> equals <code>error</code> and branch to a notification — <code>{{ $json.error }}</code> carries the reason in plain words.</p>
+  </div>
+</section>
+
+<section id="n8n-callback">
+  <h2><span class="num">10</span>n8n — the callback workflow</h2>
+  <p>Fewer nodes, no polling. Needs an n8n your app can reach over the internet (n8n Cloud is fine; a laptop behind NAT is not).</p>
+  <ol class="steps">
+    <li>Add a <strong>Wait</strong> node, set <strong>Resume</strong> → <em>On Webhook Call</em>.</li>
+    <li>Before it, an <strong>HTTP Request</strong> → POST <code>/api/v1/tts</code> with the Header Auth credential and:
+      <div class="code"><pre><code>{
+  "text": "{{ $json.script }}",
+  "format": "mp3",
+  "callback_url": "{{ $execution.resumeUrl }}"
+}</code></pre></div>
+    </li>
+    <li>When the render finishes, VoiceForge POSTs the finished job to that URL and n8n wakes up with the body:
+      <div class="code"><pre><code>{
+  "job_id": "8f1c…",
+  "status": "done",
+  "duration": 92.5,
+  "audio_url": "https://….mp3"
+}</code></pre></div>
+    </li>
+    <li>Then <strong>HTTP Request</strong> → GET <code>{{ $json.audio_url }}</code>, Response Format <strong>File</strong>.</li>
+  </ol>
+  <div class="note">
+    <p><span class="label">The callback is best-effort, and that's safe.</span> Polling <code>/jobs/{id}</code> still works as a fallback, because a poll re-checks the backend and finishes the job itself. A tunnel that dies between “render finished” and “POST sent” costs you a poll interval, not the render.</p>
+  </div>
+</section>
+
+<section id="n8n-batch">
+  <h2><span class="num">11</span>n8n — batch (one clip per line)</h2>
+  <p>For reels and short-form, where every scene needs its own audio file.</p>
+  <div class="code"><pre><code>curl -X POST https://your-app.vercel.app/api/v1/tts/batch \
+  -H "Authorization: Bearer $VOICEFORGE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      { "text": "Scene one." },
+      { "text": "Scene two." },
+      { "text": "Scene three." }
+    ]
+  }'</code></pre></div>
+  <p>Poll the same way. The finished job has an <code>items</code> array instead of one <code>audio_url</code>:</p>
+  <div class="code"><pre><code>{
+  "status": "done",
+  "items": [
+    { "index": 0, "duration": 1.4, "audio_url": "https://…-0.mp3" },
+    { "index": 1, "duration": 1.5, "audio_url": "https://…-1.mp3" },
+    { "index": 2, "duration": 1.6, "audio_url": "https://…-2.mp3" }
+  ]
+}</code></pre></div>
+  <p>In n8n, feed <code>items</code> into a <strong>Split Out</strong> node (field: <code>items</code>), then an HTTP Request on <code>{{ $json.audio_url }}</code> with Response Format <strong>File</strong>. You get one binary item per scene.</p>
+  <p>Limits: up to 50 items, 2,000 characters each.</p>
+</section>
+
+<section id="openai">
+  <h2><span class="num">12</span>OpenAI-compatible endpoint</h2>
+  <p>Point any OpenAI TTS client at your base URL and it works — same request shape, same raw-audio response.</p>
+  <div class="code"><pre><code>curl -X POST https://your-app.vercel.app/api/v1/audio/speech \
+  -H "Authorization: Bearer $VOICEFORGE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"tts-1","input":"Short and synchronous.","response_format":"mp3"}' \
+  --output speech.mp3</code></pre></div>
+  <ul>
+    <li>Returns <strong>audio bytes</strong>, not JSON.</li>
+    <li>Capped at <strong>600 characters</strong>, because it must finish inside one request.</li>
+    <li><code>voice</code> takes a VoiceForge voice id. An unknown name falls back to your default, so clients that insist on sending <code>alloy</code> still work.</li>
+    <li><code>model</code> is accepted and ignored — your model comes from the library and the live backend.</li>
+  </ul>
+  <div class="warn">
+    <p>If your only backend is Modal and it's cold, this can exceed 60 seconds and time out. For unattended work prefer <code>/api/v1/tts</code>.</p>
+  </div>
+</section>
+
+<section id="reconnect">
+  <h2>Reconnecting after a session ends</h2>
+  <p>Colab and Kaggle sessions expire. When one does, the tunnel dies, heartbeats stop, and the app marks it Offline after about three minutes.</p>
+  <ol class="steps">
+    <li><strong>Admin → Backends → Open in Colab</strong> (or Kaggle).</li>
+    <li>Check the GPU is still T4.</li>
+    <li>Re-paste Cell 0 if it was cleared. Kaggle Secrets users skip this.</li>
+    <li>Cell 0 → Cell 1 → <strong>Restart session</strong> → Cell 0 → Cell 2 → Cell 3.</li>
+  </ol>
+  <div class="ok">
+    <p><span class="label">Nothing else to redo.</span> New tunnel, registered automatically. Your voices, API keys and job history are on the server and untouched. No re-cloning, ever.</p>
+  </div>
+  <p>If you'd rather never do this: use <a href="#modal">Modal</a>.</p>
+</section>
+
+<section id="troubleshooting">
+  <h2>Troubleshooting</h2>
+  <table>
+    <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+    <tr>
+      <td>“Finish setup before backends can register”</td>
+      <td>Redis missing or <code>REGISTRATION_TOKEN</code> unset. Add them, then <strong>redeploy</strong> — env vars only apply to a new build.</td>
+    </tr>
+    <tr>
+      <td>Storage says not connected although you added it</td>
+      <td>You almost certainly haven't redeployed since. If it persists, check the variable names exist in Settings → Environment Variables.</td>
+    </tr>
+    <tr>
+      <td>Voices page: “Storage isn't ready”</td>
+      <td>Blob has no <code>BLOB_READ_WRITE_TOKEN</code>. Copy it from the Blob store's <code>.env.local</code> panel and add it by hand.</td>
+    </tr>
+    <tr>
+      <td>Cell 1 ends <code>shared server downloaded: 0.0 KB</code></td>
+      <td>The repo is private, so raw.githubusercontent refused it. Make the repo public, or upload <code>backend/voiceforge_server.py</code> into the notebook by hand.</td>
+    </tr>
+    <tr>
+      <td><code>numpy is 2.5.3, need 2.2.x</code> or <code>Numba needs NumPy 2.2 or less</code></td>
+      <td>Re-run Cell 1, then <strong>Runtime → Restart session</strong>, then Cell 0 and Cell 2. The kernel was holding the numpy it imported at startup.</td>
+    </tr>
+    <tr>
+      <td><code>AssertionError: No GPU</code></td>
+      <td>Runtime type isn't T4. Colab: Runtime → Change runtime type. Kaggle: Accelerator → GPU T4 x2.</td>
+    </tr>
+    <tr>
+      <td>REGISTRATION FAILED in Cell 3</td>
+      <td>Wrong <code>VOICEFORGE_APP_URL</code> or <code>REGISTRATION_TOKEN</code>. The backend is still running — you can add the printed URL under Backends → Custom as a stopgap.</td>
+    </tr>
+    <tr>
+      <td>Backend shows the wrong provider name</td>
+      <td>Old notebook version. Reload it from the repo; detection now uses <code>google.colab</code> and Kaggle's own env vars.</td>
+    </tr>
+    <tr>
+      <td>API returns <code>503 no_backend</code></td>
+      <td>Nothing is online, or you pinned a provider that's down. Start a notebook, or set Active backend to <strong>Auto</strong>.</td>
+    </tr>
+    <tr>
+      <td>Job stuck on <code>running</code></td>
+      <td>Poll it once more, or open Admin → Jobs — both re-check the backend and will finish it or report the real error.</td>
+    </tr>
+    <tr>
+      <td>Job errors with “the backend restarted”</td>
+      <td>The GPU session ended mid-render. Start it again and resubmit.</td>
+    </tr>
+    <tr>
+      <td>Red <code>pip</code> conflict wall in Cell 1</td>
+      <td>Expected. That's Colab's preinstalled stack, which this backend never imports. Only an <code>AssertionError</code> at the end of Cell 1 matters.</td>
+    </tr>
+  </table>
+</section>
+
+<section id="limits">
+  <h2>The honest limits</h2>
+  <ul>
+    <li><strong>Colab free gives a few hours per session</strong> and has a daily cap. Plenty for a video or two a day; not enough to run a service on.</li>
+    <li><strong>The Colab/Kaggle tab must stay open</strong> while you generate. Modal is the only unattended option.</li>
+    <li><strong>Generation is sequential</strong> — one chunk at a time, because it's one GPU. Two jobs queue behind each other.</li>
+    <li><strong>Nepali isn't supported by the model.</strong> The backend runs Chatterbox Multilingual: 23 languages including English and Hindi. Hindi is the closest option.</li>
+    <li><strong>Number expansion is English-only.</strong> “15GB” becomes “fifteen gigabytes” in English scripts; other languages keep the digits for the model to read in-language.</li>
+    <li><strong>Generated audio is deleted</strong> after the retention window in Settings — 7 days by default. Download anything you want to keep.</li>
+    <li><strong>Your voice sample</strong> goes from your browser to <em>your</em> Blob store and from there to <em>your</em> GPU. Not to Anthropic, not to any TTS company.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>VoiceForge — self-hosted voice cloning and narration. Generated as part of the project repository; open <code>Admin → API &amp; n8n</code> in your own deployment for snippets with your real URL already filled in.</p>
+</footer>
+
+</main>
+</div>
+
+<script>
+  // Copy buttons — added at runtime so the markup above stays readable.
+  document.querySelectorAll('.code').forEach(function (block) {
+    var btn = document.createElement('button');
+    btn.className = 'copy';
+    btn.type = 'button';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', function () {
+      var text = block.querySelector('code').innerText;
+      var done = function () {
+        btn.textContent = 'Copied';
+        btn.classList.add('done');
+        setTimeout(function () {
+          btn.textContent = 'Copy';
+          btn.classList.remove('done');
+        }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        // file:// in some browsers has no clipboard API — select instead.
+        var r = document.createRange();
+        r.selectNodeContents(block.querySelector('code'));
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    });
+    block.appendChild(btn);
+  });
+
+  // Highlight the section you're reading in the sidebar.
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+  var sections = links
+    .map(function (a) { return document.querySelector(a.getAttribute('href')); })
+    .filter(Boolean);
+
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        links.forEach(function (a) {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+        });
+      });
+    }, { rootMargin: '-10% 0px -75% 0px' });
+    sections.forEach(function (s) { observer.observe(s); });
+  }
+</script>
+</body>
+</html>
