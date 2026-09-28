@@ -45,6 +45,16 @@ const HEALTH_STYLE: Record<BackendView["health"], { dot: string; text: string; l
   disabled: { dot: "bg-faint", text: "text-faint", label: "Disabled" },
 };
 
+/**
+ * One-click reopen. Colab's /github/ route loads the notebook straight from
+ * this repo, so reconnecting after a session dies is a click plus Run All
+ * rather than hunting for the file.
+ */
+const REPO = "waytobijay/Bbox-Audio";
+const NOTEBOOK = "colab/voiceforge_server.ipynb";
+const COLAB_URL = `https://colab.research.google.com/github/${REPO}/blob/main/${NOTEBOOK}`;
+const KAGGLE_URL = `https://www.kaggle.com/kernels/welcome?src=https://github.com/${REPO}/blob/main/${NOTEBOOK}`;
+
 function ago(seconds: number): string {
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
@@ -325,10 +335,32 @@ function ConnectInstructions({ appUrl, tokenSet }: { appUrl: string; tokenSet: b
       <ol className="space-y-3 px-5 py-4 text-[13px] leading-relaxed text-muted">
         <li className="flex gap-3">
           <span className="font-mono text-[11px] text-faint">1</span>
-          <span>
-            Open <code className="font-mono text-[12px]">colab/voiceforge_server.ipynb</code> from
-            the repo, and turn on a <strong>T4 GPU</strong> (Kaggle: also switch Internet on).
-          </span>
+          <div className="min-w-0 flex-1">
+            <span>
+              Open the notebook and turn on a <strong>T4 GPU</strong> (Kaggle: also switch Internet
+              on).
+            </span>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <a
+                href={COLAB_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-white px-3 text-[13px] font-medium text-ink transition-colors hover:border-lineStrong"
+              >
+                <IconLink className="h-3.5 w-3.5" />
+                Open in Colab
+              </a>
+              <a
+                href={KAGGLE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-white px-3 text-[13px] font-medium text-ink transition-colors hover:border-lineStrong"
+              >
+                <IconLink className="h-3.5 w-3.5" />
+                Open in Kaggle
+              </a>
+            </div>
+          </div>
         </li>
         <li className="flex gap-3">
           <span className="font-mono text-[11px] text-faint">2</span>
