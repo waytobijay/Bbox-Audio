@@ -11,20 +11,25 @@ import { Redis } from "@upstash/redis";
 
 let client: Redis | null = null;
 
+/**
+ * Vercel's Upstash integration injects KV_REST_API_URL / KV_REST_API_TOKEN,
+ * while Upstash's own dashboard gives you UPSTASH_REDIS_REST_*. Accept either,
+ * so connecting the store from Vercel just works with nothing copied by hand.
+ */
+function credentials(): { url: string; token: string } | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+  return url && token ? { url, token } : null;
+}
+
 export function isRedisConfigured(): boolean {
-  return Boolean(
-    process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-  );
+  return credentials() !== null;
 }
 
 export function getRedis(): Redis | null {
-  if (!isRedisConfigured()) return null;
-  if (!client) {
-    client = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
-  }
+  const creds = credentials();
+  if (!creds) return null;
+  if (!client) client = new Redis(creds);
   return client;
 }
 

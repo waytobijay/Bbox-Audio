@@ -7,8 +7,20 @@
 
 import { del, put, type PutBlobResult } from "@vercel/blob";
 
+/**
+ * The SDK reads BLOB_READ_WRITE_TOKEN by default, but Vercel prefixes the
+ * variable with the store's name when a project has more than one store
+ * (e.g. VOICEFORGE_BLOB_READ_WRITE_TOKEN). Find whichever one exists and pass
+ * it explicitly, so naming never becomes something the user has to fix.
+ */
+function blobToken(): string | undefined {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  const key = Object.keys(process.env).find((k) => k.endsWith("BLOB_READ_WRITE_TOKEN"));
+  return key ? process.env[key] : undefined;
+}
+
 export function isBlobConfigured(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  return Boolean(blobToken());
 }
 
 export class BlobNotConfiguredError extends Error {
@@ -23,10 +35,12 @@ export async function putBlob(
   body: Blob | ArrayBuffer | Buffer | string,
   contentType?: string
 ): Promise<PutBlobResult> {
-  if (!isBlobConfigured()) throw new BlobNotConfiguredError();
+  const token = blobToken();
+  if (!token) throw new BlobNotConfiguredError();
   return put(pathname, body as Blob, {
     access: "public",
     contentType,
+    token,
     // Paths are already namespaced (voices/<id>, jobs/<id>) and we want a
     // stable URL per id, so don't let Blob append a random suffix.
     addRandomSuffix: false,
@@ -34,9 +48,10 @@ export async function putBlob(
 }
 
 export async function deleteBlob(url: string): Promise<void> {
-  if (!isBlobConfigured()) return;
+  const token = blobToken();
+  if (!token) return;
   try {
-    await del(url);
+    await del(url, { token });
   } catch (e) {
     console.warn("[voiceforge] blob delete failed:", e);
   }
