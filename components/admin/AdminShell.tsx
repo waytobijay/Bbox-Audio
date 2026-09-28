@@ -9,6 +9,7 @@ import {
   IconKey,
   IconLink,
   IconMic,
+  IconScript,
   IconSettings,
   IconSparkle,
   IconWave,
@@ -35,8 +36,9 @@ const PLATFORM: NavItem[] = [
 ];
 
 const DEVELOPER: NavItem[] = [
-  { href: "/admin/keys", label: "API Keys", Icon: IconKey, soon: true },
-  { href: "/admin/jobs", label: "Jobs", Icon: IconSparkle, soon: true },
+  { href: "/admin/keys", label: "API Keys", Icon: IconKey },
+  { href: "/admin/jobs", label: "Jobs", Icon: IconSparkle },
+  { href: "/admin/api", label: "API & n8n", Icon: IconScript },
   { href: "/admin/settings", label: "Settings", Icon: IconSettings },
 ];
 

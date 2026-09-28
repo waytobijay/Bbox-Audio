@@ -1,0 +1,91 @@
+/**
+ * POST /api/internal/jobs/{id}/complete — the backend saying "it's ready".
+ *
+ * Machine endpoint: authenticated by a callback token derived from the job id
+ * and BACKEND_SECRET, so it's valid for exactly one job and needs no storage.
+ * Public in middleware for that reason.
+ *
+ * The body carries metadata only. This handler then pulls each rendered file
+ * off the backend and into Blob — see lib/server/jobs.ts for why the audio
+ * can't travel in the request.
+ */
+
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { collectJob, getJob, isValidCallbackToken, saveJob } from "@/lib/server/jobs";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const schema = z.object({
+  job_id: z.string().optional(),
+  status: z.string(),
+  mode: z.enum(["stitch", "items"]).optional(),
+  format: z.enum(["mp3", "wav"]).optional(),
+  duration: z.number().optional(),
+  gen_seconds: z.number().optional(),
+  sample_rate: z.number().optional(),
+  items: z
+    .array(
+      z.object({
+        index: z.number().int().min(0),
+        duration: z.number(),
+        bytes: z.number().optional(),
+      })
+    )
+    .optional(),
+  error: z.string().optional(),
+});
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+
+  if (!(await isValidCallbackToken(id, req.headers.get("x-callback-token")))) {
+    return NextResponse.json({ error: "invalid callback token" }, { status: 401 });
+  }
+
+  const job = await getJob(id);
+  if (!job) return NextResponse.json({ error: "unknown job" }, { status: 404 });
+  // Already collected — a retried callback must not re-download everything.
+  if (job.status === "done") return NextResponse.json({ ok: true, already: true });
+
+  let body: z.infer<typeof schema>;
+  try {
+    body = schema.parse(await req.json());
+  } catch {
+    return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  }
+
+  const collected = await collectJob(job, body);
+
+  // Hand the finished job to whoever asked for a callback (n8n's Wait node
+  // resume URL, typically). Failures here must not fail the collection, so
+  // this is best-effort and recorded either way.
+  if (collected.callbackUrl && !collected.callbackSentAt) {
+    try {
+      await fetch(collected.callbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: collected.id,
+          status: collected.status,
+          duration: collected.duration,
+          audio_url: collected.audioUrl,
+          items: collected.items?.map((i) => ({
+            index: i.index,
+            duration: i.duration,
+            audio_url: i.audioUrl,
+          })),
+          error: collected.error,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      await saveJob({ ...collected, callbackSentAt: Date.now() });
+    } catch (e) {
+      console.warn("[voiceforge] job callback failed:", e);
+    }
+  }
+
+  return NextResponse.json({ ok: true, status: collected.status });
+}

@@ -15,8 +15,15 @@ PUT    /voices/{voice_id}   -> {audio_url, transcript, language} downloads + cac
 POST   /generate            -> one chunk of speech; 409 voice_not_cached if unknown
 POST   /clone               -> legacy multipart clone (kept for the old studio path)
 POST   /jobs                -> 202, renders a whole script in a background worker
+GET    /jobs/{id}           -> status + per-item metadata (never the audio)
+GET    /jobs/{id}/audio/{n} -> one finished file, collected by the gateway
+DELETE /jobs/{id}           -> drop a collected job and its files
 
 Every call except /health requires the X-Backend-Secret header.
+
+Why jobs return audio over GET rather than in the callback: Vercel rejects a
+request body larger than 4.5 MB, and a 15-minute narration is far bigger. So
+the callback carries metadata only and the gateway then pulls each file.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ import soundfile as sf
 import torch
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 VERSION = "2.0.0"
 
@@ -51,6 +58,13 @@ PEAK_DBFS = -1.0
 
 VOICES_DIR = os.environ.get("VOICEFORGE_VOICES_DIR", "/tmp/voiceforge/voices")
 os.makedirs(VOICES_DIR, exist_ok=True)
+
+# Finished renders wait here until the gateway collects them. They never travel
+# inside the callback: a 15-minute MP3 is ~15 MB and Vercel rejects a request
+# body over 4.5 MB, so the callback carries only metadata and the gateway then
+# pulls the file with a GET, which has no such limit.
+JOBS_DIR = os.environ.get("VOICEFORGE_JOBS_DIR", "/tmp/voiceforge/jobs")
+os.makedirs(JOBS_DIR, exist_ok=True)
 
 MODELS: Dict[str, Any] = {}
 VOICES: Dict[str, Dict[str, str]] = {}
@@ -102,17 +116,23 @@ def _peak_normalize(audio: np.ndarray, dbfs: float = PEAK_DBFS) -> np.ndarray:
     return (audio * ((10 ** (dbfs / 20)) / peak)).astype(np.float32)
 
 
-def _wav_b64(audio: np.ndarray, sr: int, fmt: str = "wav") -> str:
+def _encode(audio: np.ndarray, sr: int, fmt: str = "wav") -> tuple[bytes, str]:
+    """Encode to bytes. Returns (data, actual_format) — MP3 needs a libsndfile
+    built with LAME, which not every GPU host has, so we fall back to WAV and
+    report which one the caller actually got."""
     buf = io.BytesIO()
     if fmt == "mp3":
         try:
             sf.write(buf, audio, sr, format="MP3")
+            return buf.getvalue(), "mp3"
         except Exception:
             buf = io.BytesIO()
-            sf.write(buf, audio, sr, format="WAV", subtype="PCM_16")
-    else:
-        sf.write(buf, audio, sr, format="WAV", subtype="PCM_16")
-    return base64.b64encode(buf.getvalue()).decode()
+    sf.write(buf, audio, sr, format="WAV", subtype="PCM_16")
+    return buf.getvalue(), "wav"
+
+
+def _wav_b64(audio: np.ndarray, sr: int, fmt: str = "wav") -> str:
+    return base64.b64encode(_encode(audio, sr, fmt)[0]).decode()
 
 
 def _stitch(parts: List[np.ndarray], sr: int, paragraph_breaks: List[bool]) -> np.ndarray:
@@ -219,7 +239,8 @@ def json_dumps(obj: Any) -> str:
 
 
 def _run_job(job: Dict[str, Any]) -> None:
-    """Render every chunk sequentially, then upload the result in parts."""
+    """Render every chunk sequentially, write the results to disk, then tell
+    the gateway they're ready. The gateway collects the files itself."""
     global _BUSY
     job_id = job["job_id"]
     chunks: List[str] = job["chunks"]
@@ -252,24 +273,55 @@ def _run_job(job: Dict[str, Any]) -> None:
                     JOBS[job_id]["progress"] = round((i + 1) / max(1, len(chunks)) * 100)
             _BUSY = False
 
-        if mode == "items":
-            items = [{"audio_b64": _wav_b64(_peak_normalize(a), sr, fmt), "duration": round(len(a) / sr, 2)} for a in rendered]
-            result: Dict[str, Any] = {"items": items}
-        else:
-            stitched = _peak_normalize(_stitch(rendered, sr, breaks))
-            result = {
-                "audio_b64": _wav_b64(stitched, sr, fmt),
-                "duration": round(len(stitched) / sr, 2),
-            }
-
-        result.update(
-            {"status": "done", "gen_seconds": round(time.time() - t0, 2), "sample_rate": sr}
+        # mode "items" keeps one file per input line (the Reel case); "stitch"
+        # joins them with the tuned gaps into a single narration.
+        outputs = (
+            [_peak_normalize(a) for a in rendered]
+            if mode == "items"
+            else [_peak_normalize(_stitch(rendered, sr, breaks))]
         )
+
+        items: List[Dict[str, Any]] = []
+        actual_fmt = fmt
+        for index, audio in enumerate(outputs):
+            data, actual_fmt = _encode(audio, sr, fmt)
+            path = os.path.join(JOBS_DIR, f"{job_id}-{index}.{actual_fmt}")
+            with open(path, "wb") as fh:
+                fh.write(data)
+            items.append(
+                {
+                    "index": index,
+                    "path": path,
+                    "bytes": len(data),
+                    "duration": round(len(audio) / sr, 2),
+                }
+            )
+
+        result: Dict[str, Any] = {
+            "status": "done",
+            "mode": mode,
+            "format": actual_fmt,
+            "sample_rate": sr,
+            "gen_seconds": round(time.time() - t0, 2),
+            "duration": round(sum(i["duration"] for i in items), 2),
+            "items": items,
+        }
         with _JOB_LOCK:
             JOBS[job_id].update(result)
-            JOBS[job_id]["status"] = "done"
         if callback_url:
-            _post_json(callback_url, {"job_id": job_id, **result}, token)
+            # Metadata only. The gateway collects the audio with
+            # GET /jobs/{id}/audio/{index} once it sees this.
+            _post_json(
+                callback_url,
+                {
+                    **{k: v for k, v in result.items() if k != "items"},
+                    "job_id": job_id,
+                    "items": [
+                        {k: v for k, v in i.items() if k != "path"} for i in items
+                    ],
+                },
+                token,
+            )
     except Exception as e:
         _BUSY = False
         err = f"{e}\n{traceback.format_exc()[-1200:]}"
@@ -394,12 +446,55 @@ def create_app(provider: str = "custom") -> FastAPI:
         return {"accepted": True, "job_id": job_id}
 
     @app.get("/jobs/{job_id}")
-    def job_status(job_id: str) -> dict:
+    def job_status(job_id: str, x_backend_secret: Optional[str] = Header(None)) -> dict:
+        _check(x_backend_secret)
         with _JOB_LOCK:
             job = JOBS.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="unknown job")
-        # Never echo the audio here — status polling must stay small.
-        return {k: v for k, v in job.items() if k not in ("audio_b64", "items")}
+        # Status polling must stay small: send item metadata, never the audio
+        # and never local paths.
+        out = {k: v for k, v in job.items() if k != "items"}
+        if job.get("items"):
+            out["items"] = [
+                {k: v for k, v in i.items() if k != "path"} for i in job["items"]
+            ]
+        return out
+
+    @app.get("/jobs/{job_id}/audio/{index}")
+    def job_audio(
+        job_id: str, index: int, x_backend_secret: Optional[str] = Header(None)
+    ):
+        """Hand one finished file to the gateway, which streams it into Blob.
+
+        This is the half of the contract that dodges Vercel's 4.5 MB request
+        body limit — a response of any size is fine."""
+        _check(x_backend_secret)
+        with _JOB_LOCK:
+            job = JOBS.get(job_id)
+        if not job or job.get("status") != "done":
+            raise HTTPException(status_code=404, detail="job not finished")
+        items = job.get("items") or []
+        if index < 0 or index >= len(items):
+            raise HTTPException(status_code=404, detail="no such item")
+        path = items[index]["path"]
+        if not os.path.exists(path):
+            raise HTTPException(status_code=410, detail="file already collected")
+        media = "audio/mpeg" if path.endswith(".mp3") else "audio/wav"
+        return FileResponse(path, media_type=media, filename=os.path.basename(path))
+
+    @app.delete("/jobs/{job_id}")
+    def job_delete(job_id: str, x_backend_secret: Optional[str] = Header(None)) -> dict:
+        """Called once the gateway has everything, so a long Colab session
+        doesn't slowly fill its disk with collected renders."""
+        _check(x_backend_secret)
+        with _JOB_LOCK:
+            job = JOBS.pop(job_id, None)
+        for item in (job or {}).get("items") or []:
+            try:
+                os.remove(item["path"])
+            except OSError:
+                pass
+        return {"ok": True}
 
     return app
