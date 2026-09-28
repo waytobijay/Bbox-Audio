@@ -139,3 +139,47 @@ export interface AnimateResult {
   durationSec: number;
   genSeconds: number;
 }
+
+// ---------------------------------------------------------------------------
+// GPU backend registry (platform v2)
+// ---------------------------------------------------------------------------
+
+export type BackendProvider = "modal" | "colab" | "kaggle" | "custom";
+
+export const BACKEND_PROVIDERS: BackendProvider[] = ["modal", "colab", "kaggle", "custom"];
+
+/** "auto" picks the first enabled+online backend by priority. */
+export type ActiveBackend = "auto" | BackendProvider;
+
+export type BackendHealthKind = "online" | "busy" | "offline" | "disabled";
+
+/** What a backend sends when it registers itself / heartbeats. */
+export interface BackendRegistration {
+  provider: BackendProvider;
+  url: string;
+  gpu?: string;
+  models?: string[];
+  version?: string;
+}
+
+/** A row in the registry, as stored. */
+export interface RegisteredBackend extends BackendRegistration {
+  models: string[];
+  registeredAt: number;
+  lastHeartbeat: number;
+  enabled: boolean;
+  /** Lower wins when the active selection is "auto". */
+  priority: number;
+  busy?: boolean;
+  voicesCached?: string[];
+  /** Summed from job gen_seconds — used for the Modal free-credit gauge. */
+  gpuSecondsMonth?: number;
+  jobsToday?: number;
+  lastError?: string;
+}
+
+/** Registry row plus the status computed at read time. */
+export interface BackendView extends RegisteredBackend {
+  health: BackendHealthKind;
+  secondsSinceHeartbeat: number;
+}

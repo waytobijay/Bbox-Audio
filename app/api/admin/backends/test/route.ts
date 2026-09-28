@@ -1,0 +1,100 @@
+/**
+ * "Test" button — proves a backend is genuinely reachable and can speak,
+ * not merely that a row exists in Redis.
+ *
+ * Two steps: /health (fast, must not wake Modal's GPU) and optionally a
+ * one-line generation. Kept well under Vercel's 60 s function ceiling.
+ */
+
+import { NextResponse, type NextRequest } from "next/server";
+import { z } from "zod";
+import { backendHeaders, getBackend } from "@/lib/server/backends";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const schema = z.object({
+  provider: z.enum(["modal", "colab", "kaggle", "custom"]),
+  /** Health only by default — generation needs a cached voice. */
+  generate: z.boolean().optional(),
+  voiceId: z.string().max(80).optional(),
+});
+
+export async function POST(req: NextRequest) {
+  let body: z.infer<typeof schema>;
+  try {
+    body = schema.parse(await req.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+
+  const backend = await getBackend(body.provider);
+  if (!backend) {
+    return NextResponse.json({ error: "That backend isn't registered." }, { status: 404 });
+  }
+
+  const started = Date.now();
+  let health: unknown;
+  try {
+    const res = await fetch(`${backend.url}/health`, {
+      headers: backendHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      return NextResponse.json(
+        { ok: false, error: `Health check returned ${res.status}.` },
+        { status: 200 }
+      );
+    }
+    health = await res.json();
+  } catch (e) {
+    const timedOut = e instanceof Error && e.name === "TimeoutError";
+    return NextResponse.json(
+      {
+        ok: false,
+        error: timedOut
+          ? "Health check timed out. The notebook may have stopped."
+          : "Couldn't reach the backend. Is the notebook still running?",
+      },
+      { status: 200 }
+    );
+  }
+
+  if (!body.generate || !body.voiceId) {
+    return NextResponse.json({
+      ok: true,
+      latencyMs: Date.now() - started,
+      health,
+    });
+  }
+
+  try {
+    const res = await fetch(`${backend.url}/generate`, {
+      method: "POST",
+      headers: backendHeaders(),
+      body: JSON.stringify({
+        text: "VoiceForge backend test. One, two, three.",
+        voice_id: body.voiceId,
+        model: "chatterbox",
+        seed: 1,
+        language: "en",
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const data = (await res.json()) as { audio_b64?: string; error?: string };
+    if (!res.ok || data.error) {
+      return NextResponse.json({ ok: false, error: data.error ?? `Error ${res.status}` });
+    }
+    return NextResponse.json({
+      ok: true,
+      latencyMs: Date.now() - started,
+      health,
+      audioB64: data.audio_b64,
+    });
+  } catch {
+    return NextResponse.json({
+      ok: false,
+      error: "Generation timed out. The GPU may be cold or busy.",
+    });
+  }
+}

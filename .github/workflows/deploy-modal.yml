@@ -1,0 +1,49 @@
+name: Deploy Modal backend
+
+# Redeploys the GPU backend whenever the shared server or the Modal wrapper
+# changes. Requires two repo secrets (Settings → Secrets → Actions):
+#   MODAL_TOKEN_ID, MODAL_TOKEN_SECRET   (from: modal token new)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "modal/**"
+      - "backend/**"
+      - ".github/workflows/deploy-modal.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Modal
+        run: pip install --upgrade modal
+
+      # Fail early with a readable message instead of a confusing auth error.
+      - name: Check credentials
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ -z "$MODAL_TOKEN_SECRET" ]; then
+            echo "::error::MODAL_TOKEN_ID / MODAL_TOKEN_SECRET are not set."
+            echo "Run 'modal token new', then add them under Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      - name: Deploy
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: modal deploy modal/voiceforge_modal.py
+
+      - name: Next step
+        run: |
+          echo "Deployed. Copy the printed https://…modal.run URL into"
+          echo "VoiceForge → Admin → Backends → Custom, or set it as the Modal URL."
