@@ -18,7 +18,9 @@ export async function GET() {
 
   const settled = await Promise.all(
     jobs.map(async (job) => {
-      const stale = Date.now() - job.updatedAt > 10_000;
+      // 30s, not the 10s page refresh: each reconcile is a request to the
+      // backend, and on Modal that can wake a billed GPU container.
+      const stale = Date.now() - job.updatedAt > 30_000;
       return (job.status === "running" || job.status === "queued") && stale
         ? reconcileJob(job).catch(() => job)
         : job;

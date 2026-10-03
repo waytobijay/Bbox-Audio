@@ -306,3 +306,29 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(false);
   });
 });
+
+describe("reconcile stops chasing a dead job", () => {
+  /**
+   * The admin Jobs page polls while it's open. Each reconcile is a request to
+   * the backend, and on Modal that wakes a billed GPU — so a job stuck in
+   * "running" must stop being chased rather than waking the GPU forever.
+   */
+  it("fails a job past the backend's timeout without contacting it", async () => {
+    const fetchMock = routeFetch({});
+    const ancient = Date.now() - 40 * 60 * 1000;
+
+    const settled = await reconcileJob(job({ createdAt: ancient }));
+
+    expect(settled.status).toBe("error");
+    expect(settled.error).toMatch(/never reported back/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still reconciles a job that is young enough to be real", async () => {
+    const fetchMock = routeFetch({ "/jobs/job-1": { json: { status: "running" } } });
+
+    await reconcileJob(job({ createdAt: Date.now() - 60_000 }));
+
+    expect(fetchMock).toHaveBeenCalled();
+  });
+});

@@ -360,8 +360,24 @@ export async function collectJob(job: Job, result: BackendResult): Promise<Job> 
  * render finishing and the POST arriving would otherwise strand the job as
  * "running" forever.
  */
+/**
+ * A job can't outlive the backend's own render timeout (30 minutes on Modal).
+ * Past that it is certainly dead, and continuing to ask would wake a paid GPU
+ * on every poll for a job that will never finish.
+ */
+export const JOB_STALE_AFTER_MS = 35 * 60 * 1000;
+
 export async function reconcileJob(job: Job): Promise<Job> {
   if (job.status === "done" || job.status === "error" || !job.backendUrl) return job;
+
+  if (Date.now() - job.createdAt > JOB_STALE_AFTER_MS) {
+    // Give up locally. Never contact the backend for this one again.
+    return saveJob({
+      ...job,
+      status: "error",
+      error: "the render never reported back and has passed the backend's timeout",
+    });
+  }
 
   let result: BackendResult;
   try {
