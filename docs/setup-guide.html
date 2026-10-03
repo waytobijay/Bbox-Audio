@@ -413,7 +413,11 @@ BACKEND_SECRET     = "the other value you set in Vercel"</code></pre></div>
   <ol class="steps">
     <li>Go to <a href="https://www.kaggle.com/code">kaggle.com/code</a> → <strong>New Notebook</strong> → <strong>File → Import Notebook</strong> → paste the GitHub URL of <code>colab/voiceforge_server.ipynb</code>.</li>
     <li>Right panel → <strong>Accelerator → GPU T4 x2</strong>.</li>
-    <li>Right panel → <strong>Internet → On</strong>. Without this the notebook can't register or download models.</li>
+    <li>Right panel → <strong>Internet → On</strong>. Without this nothing works: pip can't reach PyPI, the model never downloads, and the notebook can't register.
+      <div class="warn" style="margin-top:8px">
+        <p><span class="label">Kaggle only shows this toggle on a phone-verified account.</span> If Internet is greyed out, go to <a href="https://www.kaggle.com/settings">kaggle.com/settings</a> → <strong>Phone Verification</strong>, verify, then reopen the notebook.</p>
+      </div>
+    </li>
     <li>Optional but tidier: <strong>Add-ons → Secrets</strong>, add <code>VOICEFORGE_APP_URL</code>, <code>REGISTRATION_TOKEN</code> and <code>BACKEND_SECRET</code>, then leave Cell 0's three lines empty — the notebook reads them from Secrets automatically.</li>
     <li>Run Cell 0 → Cell 1 → <strong>restart the session</strong> → Cell 0 → Cell 2 → Cell 3, exactly as for Colab.</li>
   </ol>
@@ -742,6 +746,10 @@ modal token new</code></pre></div>
     <tr>
       <td>Voices page: “Storage isn't ready”</td>
       <td>Blob has no <code>BLOB_READ_WRITE_TOKEN</code>. Copy it from the Blob store's <code>.env.local</code> panel and add it by hand.</td>
+    </tr>
+    <tr>
+      <td>Kaggle: <code>Temporary failure in name resolution</code>, <code>No matching distribution</code>, <code>cannot access archive</code></td>
+      <td>That session has no internet — all three are the same cause. Right panel → <strong>Session options → Internet → On</strong>. If the toggle is greyed out, phone-verify at <a href="https://www.kaggle.com/settings">kaggle.com/settings</a> first.</td>
     </tr>
     <tr>
       <td>Cell 1 ends <code>shared server downloaded: 0.0 KB</code></td>
