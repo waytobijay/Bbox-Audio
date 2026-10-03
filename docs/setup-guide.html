@@ -382,10 +382,16 @@
   <ol class="steps">
     <li>In your app, open <strong>Admin → Backends</strong> and click <strong>Open in Colab</strong>. (Direct link below if you prefer.)</li>
     <li><strong>Runtime → Change runtime type → T4 GPU → Save.</strong> Without this nothing works.</li>
-    <li>Fill in <strong>Cell 0</strong> with your three values:
-      <div class="code"><pre><code>VOICEFORGE_APP_URL = "https://your-app.vercel.app"
-REGISTRATION_TOKEN = "the value you set in Vercel"
-BACKEND_SECRET     = "the other value you set in Vercel"</code></pre></div>
+    <li><strong>Store your three values as Colab Secrets — once, not every session.</strong>
+      Click the <strong>key icon</strong> in the left sidebar and add:
+      <div class="code"><pre><code>VOICEFORGE_APP_URL   https://your-app.vercel.app
+REGISTRATION_TOKEN   the value you set in Vercel
+BACKEND_SECRET       the other value you set in Vercel</code></pre></div>
+      Toggle <strong>Notebook access</strong> ON for each. Cell 0 reads them
+      automatically and you never edit the notebook again.
+      <div class="warn" style="margin-top:8px">
+        <p><span class="label">This also protects you.</span> Secrets typed into Cell 0 get committed if you ever press Colab's <em>Save a copy in GitHub</em> — which has happened. Secrets stored this way never touch the notebook file.</p>
+      </div>
     </li>
     <li>Run <strong>Cell 0</strong>, then <strong>Cell 1</strong>. Cell 1 takes 3–10 minutes and prints a wall of red <code>pip</code> conflict lines about jax, opencv and cupy — <strong>expected and harmless</strong>; that's Colab's preinstalled data-science stack, which this backend never imports.</li>
     <li><strong>Runtime → Restart session.</strong> This is required: the kernel is still holding the numpy it imported at startup.</li>
@@ -418,7 +424,7 @@ BACKEND_SECRET     = "the other value you set in Vercel"</code></pre></div>
         <p><span class="label">Kaggle only shows this toggle on a phone-verified account.</span> If Internet is greyed out, go to <a href="https://www.kaggle.com/settings">kaggle.com/settings</a> → <strong>Phone Verification</strong>, verify, then reopen the notebook.</p>
       </div>
     </li>
-    <li>Optional but tidier: <strong>Add-ons → Secrets</strong>, add <code>VOICEFORGE_APP_URL</code>, <code>REGISTRATION_TOKEN</code> and <code>BACKEND_SECRET</code>, then leave Cell 0's three lines empty — the notebook reads them from Secrets automatically.</li>
+    <li><strong>Add-ons → Secrets</strong> — add <code>VOICEFORGE_APP_URL</code>, <code>REGISTRATION_TOKEN</code> and <code>BACKEND_SECRET</code>, and attach each to the notebook. Leave Cell 0 untouched; it reads them automatically, this session and every future one.</li>
     <li>Run Cell 0 → Cell 1 → <strong>restart the session</strong> → Cell 0 → Cell 2 → Cell 3, exactly as for Colab.</li>
   </ol>
   <div class="note">
