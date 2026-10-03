@@ -5,6 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import {
+  backendHeaders,
   forgetBackend,
   getActiveSelection,
   listBackends,
@@ -48,10 +49,35 @@ export async function PATCH(req: NextRequest) {
   }
 
   if ("url" in body) {
+    const url = body.url.replace(/[/]+$/, "");
+
+    // Ask what it is. A self-registering notebook sends its GPU and models
+    // when it checks in; a URL typed in here has nobody to do that, so the
+    // card would otherwise show no GPU and no models — which also greys out
+    // the model picker in the studio. Best-effort: an unreachable backend is
+    // still worth registering, since Modal may simply be asleep.
+    let probed: { gpu?: string; models?: string[]; version?: string } = {};
+    try {
+      const res = await fetch(`${url}/health`, {
+        headers: backendHeaders(),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (res.ok) {
+        const h = (await res.json()) as {
+          gpu?: string;
+          models?: string[];
+          version?: string;
+        };
+        probed = { gpu: h.gpu, models: h.models, version: h.version };
+      }
+    } catch {
+      /* asleep or unreachable — register it anyway */
+    }
+
     // Registering by hand still goes through the same path as
     // self-registration, so there's one code path for liveness.
     const row = await registerBackend(
-      { provider: body.provider, url: body.url },
+      { provider: body.provider, url, ...probed },
       // Typed in by hand: there's no notebook to heartbeat, so this row must
       // not be aged out like a Colab tunnel.
       { selfRegistered: false }

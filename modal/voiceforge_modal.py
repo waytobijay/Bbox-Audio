@@ -19,6 +19,22 @@ APP_NAME = "voiceforge"
 # Same pinned stack the notebooks use — see colab/voiceforge_server.ipynb.
 # numpy<2 and the exact transformers/safetensors pins are load-bearing:
 # chatterbox breaks on newer ones.
+def _bake_weights() -> None:
+    """Download the Chatterbox weights at IMAGE BUILD time.
+
+    Without this the first request on a cold container pulls several GB from
+    HuggingFace before it can answer, which blows past the 60 s ceiling on a
+    Vercel function — the caller sees a timeout and assumes the GPU is down.
+    Baking them into the image layer turns a cold start into "load from local
+    disk", which is the difference between minutes and seconds.
+    """
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+    # CPU here on purpose: the build machine has no GPU, and we only need the
+    # files in the cache, not a usable model.
+    ChatterboxMultilingualTTS.from_pretrained(device="cpu")
+
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "git")
@@ -30,6 +46,7 @@ image = (
         "transformers==5.2.0",
         "safetensors==0.5.3",
     )
+    .run_function(_bake_weights)
     .add_local_dir("backend", remote_path="/root/backend")
 )
 
