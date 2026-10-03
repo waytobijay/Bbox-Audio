@@ -36,12 +36,31 @@ vi.mock("../server/blob", () => ({
   isBlobConfigured: () => true,
 }));
 
+let activeBackend: unknown = null;
+
 vi.mock("../server/backends", () => ({
   backendHeaders: () => ({ "Content-Type": "application/json", "X-Backend-Secret": "s" }),
-  resolveBackend: async () => null,
+  resolveBackend: async () => activeBackend,
 }));
 
-const { collectJob, reconcileJob } = await import("../server/jobs");
+const libraryVoice = {
+  id: "me-1234",
+  name: "Me",
+  language: "en",
+  transcript: "hello",
+  audioUrl: "https://blob.test/voices/me-1234.wav",
+  durationSec: 15,
+  sizeBytes: 1000,
+  createdAt: 0,
+  updatedAt: 0,
+};
+let voiceExists = true;
+
+vi.mock("../server/voices", () => ({
+  getVoice: async (id: string) => (voiceExists && id === libraryVoice.id ? libraryVoice : null),
+}));
+
+const { collectJob, createAndDispatchJob, reconcileJob } = await import("../server/jobs");
 type Job = Awaited<ReturnType<typeof reconcileJob>>;
 
 function job(patch: Partial<Job> = {}): Job {
@@ -196,5 +215,93 @@ describe("reconcileJob", () => {
     const already = job({ status: "done" });
     expect(await reconcileJob(already)).toBe(already);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createAndDispatchJob — voice must be on the GPU first", () => {
+  /**
+   * A job renders in a background worker, so an unknown voice can't be
+   * recovered from the way a single chunk can (react to 409, retry). It has
+   * to be pushed before dispatch, or the whole render dies with
+   * "voice_not_cached" — which is exactly what happened in production.
+   */
+  const dispatchInput = {
+    chunks: ["Hello."],
+    paragraphBreaks: [false],
+    voiceId: "me-1234",
+    mode: "stitch" as const,
+    format: "mp3" as const,
+    source: "key-1",
+    params: {},
+  };
+
+  beforeEach(() => {
+    activeBackend = { provider: "colab", url: "https://gpu.test", health: "online" };
+    voiceExists = true;
+  });
+
+  it("pushes the voice when the backend doesn't have it yet", async () => {
+    const fetchMock = routeFetch({
+      "/health": { json: { voices_cached: [] } },
+      "/voices/me-1234": { json: { ok: true } },
+      "/jobs": { json: { accepted: true } },
+    });
+
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+
+    const puts = fetchMock.mock.calls.filter(
+      (c) => String(c[0]).includes("/voices/me-1234") && (c[1] as RequestInit)?.method === "PUT"
+    );
+    expect(puts).toHaveLength(1);
+    expect(job.status).toBe("running");
+  });
+
+  it("skips the upload when the backend already has it", async () => {
+    const fetchMock = routeFetch({
+      "/health": { json: { voices_cached: ["me-1234"] } },
+      "/jobs": { json: { accepted: true } },
+    });
+
+    await createAndDispatchJob(dispatchInput, "https://app.test");
+
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).includes("/voices/me-1234"))
+    ).toBe(false);
+  });
+
+  it("pushes anyway when /health can't be read, rather than risking the render", async () => {
+    const fetchMock = routeFetch({
+      "/health": { status: 500 },
+      "/voices/me-1234": { json: { ok: true } },
+      "/jobs": { json: { accepted: true } },
+    });
+
+    await createAndDispatchJob(dispatchInput, "https://app.test");
+
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).includes("/voices/me-1234"))
+    ).toBe(true);
+  });
+
+  it("fails with a clear error when the voice isn't in the library", async () => {
+    voiceExists = false;
+    routeFetch({ "/health": { json: { voices_cached: [] } } });
+
+    await expect(createAndDispatchJob(dispatchInput, "https://app.test")).rejects.toMatchObject({
+      code: "unknown_voice",
+      status: 404,
+    });
+  });
+
+  it("reports a failed voice upload instead of dispatching a doomed job", async () => {
+    const fetchMock = routeFetch({
+      "/health": { json: { voices_cached: [] } },
+      "/voices/me-1234": { status: 400, body: "bad clip" },
+    });
+
+    await expect(createAndDispatchJob(dispatchInput, "https://app.test")).rejects.toMatchObject({
+      code: "voice_sync_failed",
+    });
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(false);
   });
 });

@@ -19,8 +19,10 @@
 
 import type { BackendProvider } from "@/lib/types";
 import { backendHeaders, resolveBackend } from "./backends";
+import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
 import { kvDel, kvGet, kvSet } from "./redis";
+import { getVoice } from "./voices";
 import { getSettings } from "./redis";
 
 const KEY = (id: string) => `vf:job:${id}`;
@@ -144,6 +146,51 @@ export class JobError extends Error {
 }
 
 /**
+ * Make sure the chosen backend actually holds this voice before we hand it a
+ * job.
+ *
+ * The one-chunk path can recover from a cold backend by reacting to a 409 and
+ * retrying, but a job renders in a background worker where there is nothing to
+ * retry into — an unknown voice just fails the whole render with
+ * "voice_not_cached". So the sync happens up front, here.
+ *
+ * /health lists what's already cached, so a warm backend costs one cheap GET
+ * rather than re-uploading the clip on every job.
+ */
+async function ensureVoiceCached(backendUrl: string, voiceId: string): Promise<void> {
+  const voice = await getVoice(voiceId);
+  if (!voice) {
+    throw new JobError(`No voice with id "${voiceId}".`, 404, "unknown_voice");
+  }
+
+  let cached: string[] = [];
+  try {
+    const res = await fetch(`${backendUrl}/health`, {
+      headers: backendHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) {
+      cached = ((await res.json()) as { voices_cached?: string[] }).voices_cached ?? [];
+    }
+  } catch {
+    // Couldn't ask — fall through and push the voice anyway. Caching twice is
+    // harmless; dispatching a job for a voice the GPU lacks is not.
+  }
+
+  if (cached.includes(voiceId)) return;
+
+  try {
+    await syncVoiceToBackend(backendUrl, voice);
+  } catch (e) {
+    throw new JobError(
+      `Couldn't send the voice to the backend: ${e instanceof Error ? e.message : "unknown error"}`,
+      502,
+      "voice_sync_failed"
+    );
+  }
+}
+
+/**
  * Create the job, then hand it to a backend.
  *
  * The record is written BEFORE dispatch on purpose: if the backend call fails
@@ -162,6 +209,10 @@ export async function createAndDispatchJob(
       "no_backend"
     );
   }
+
+  // Before anything is written down: a job for a voice the GPU doesn't have
+  // would fail in the worker with no way to recover.
+  await ensureVoiceCached(backend.url, input.voiceId);
 
   const id = crypto.randomUUID();
   const now = Date.now();
