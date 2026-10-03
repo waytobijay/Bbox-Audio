@@ -106,6 +106,40 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
     }
   }
 
+  /**
+   * Swap this backend's priority with its neighbour's. Working off the
+   * displayed order (already sorted by priority) means the two writes can't
+   * disagree about what "next" meant.
+   */
+  async function move(provider: BackendProvider, delta: -1 | 1) {
+    if (!data) return;
+    const list = data.backends;
+    const from = list.findIndex((b) => b.provider === provider);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= list.length) return;
+
+    const reordered = [...list];
+    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
+
+    setBusy("reorder");
+    try {
+      // Renumber from zero so repeated swaps can't drift into ties.
+      for (const [index, b] of reordered.entries()) {
+        if (b.priority === index) continue;
+        await fetch("/api/admin/backends", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: b.provider, priority: index }),
+        });
+      }
+      await load();
+    } catch {
+      toast("Couldn't reorder those.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function test(provider: BackendProvider) {
     setBusy(`test-${provider}`);
     try {
@@ -181,9 +215,22 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
         <div className="border-b border-line bg-surface2 px-5 py-3.5">
           <h2 className="text-[13px] font-semibold text-ink">Active backend</h2>
           <p className="mt-0.5 text-[12.5px] text-muted">
-            Auto uses the first healthy backend by priority, and falls back automatically when one
-            dies.
+            Auto uses the first healthy backend in the order below, and falls back automatically
+            when one dies.
           </p>
+          {data.backends.length > 1 ? (
+            <p className="mt-1.5 text-[12px] text-faint">
+              Order:{" "}
+              {data.backends.map((b, i) => (
+                <span key={b.provider}>
+                  {i > 0 ? " → " : ""}
+                  <span className={b.enabled ? "text-muted" : "line-through"}>
+                    {PROVIDER_LABEL[b.provider]}
+                  </span>
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2 px-5 py-4">
           {(["auto", "modal", "colab", "kaggle", "custom"] as ActiveBackend[]).map((opt) => {
@@ -210,7 +257,7 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
       </div>
 
       {/* registered backends */}
-      {data.backends.map((b) => {
+      {data.backends.map((b, i) => {
         const style = HEALTH_STYLE[b.health];
         return (
           <div key={b.provider} className="glass-card overflow-hidden">
@@ -234,6 +281,15 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
                       active
                     </span>
                   ) : null}
+                  <span className="rounded-full bg-surface3 px-2 py-0.5 text-[11px] font-medium text-faint">
+                    {data.active === "auto"
+                      ? i === 0
+                        ? "1st choice"
+                        : i === data.backends.length - 1
+                          ? "last resort"
+                          : `${i + 1}${i === 1 ? "nd" : i === 2 ? "rd" : "th"} choice`
+                      : `order ${i + 1}`}
+                  </span>
                 </div>
                 <p className="mt-1 break-all font-mono text-[11.5px] text-faint">{b.url}</p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted">
@@ -248,7 +304,32 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
                   ) : null}
                 </div>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {/* Reordering is how you say "only use Modal when the free
+                    GPUs are down" — Auto walks this list top to bottom. */}
+                <div className="flex items-center overflow-hidden rounded-lg border border-line">
+                  <button
+                    type="button"
+                    disabled={busy !== null || i === 0}
+                    onClick={() => void move(b.provider, -1)}
+                    aria-label={`Move ${PROVIDER_LABEL[b.provider]} earlier`}
+                    title="Try this one earlier"
+                    className="grid h-8 w-7 place-items-center text-faint transition-colors hover:bg-surface2 hover:text-ink disabled:opacity-30"
+                  >
+                    ↑
+                  </button>
+                  <span className="w-px self-stretch bg-line" />
+                  <button
+                    type="button"
+                    disabled={busy !== null || i === data.backends.length - 1}
+                    onClick={() => void move(b.provider, 1)}
+                    aria-label={`Move ${PROVIDER_LABEL[b.provider]} later`}
+                    title="Try this one later"
+                    className="grid h-8 w-7 place-items-center text-faint transition-colors hover:bg-surface2 hover:text-ink disabled:opacity-30"
+                  >
+                    ↓
+                  </button>
+                </div>
                 <Button size="sm" disabled={busy !== null} onClick={() => void test(b.provider)}>
                   {busy === `test-${b.provider}` ? "Testing…" : "Test"}
                 </Button>

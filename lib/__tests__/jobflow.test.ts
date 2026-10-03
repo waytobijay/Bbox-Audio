@@ -83,7 +83,8 @@ function job(patch: Partial<Job> = {}): Job {
 
 /** Minimal fetch double that maps URL substrings to responses. */
 function routeFetch(routes: Record<string, { status?: number; json?: unknown; body?: string }>) {
-  const fn = vi.fn(async (url: string | URL) => {
+  const fn = vi.fn(async (url: string | URL, init?: RequestInit) => {
+    void init;
     const href = String(url);
     const hit = Object.entries(routes).find(([frag]) => href.includes(frag));
     if (!hit) return { ok: false, status: 404, json: async () => ({}) };
@@ -250,7 +251,7 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
     const job = await createAndDispatchJob(dispatchInput, "https://app.test");
 
     const puts = fetchMock.mock.calls.filter(
-      (c) => String(c[0]).includes("/voices/me-1234") && (c[1] as RequestInit)?.method === "PUT"
+      (c) => String(c[0]).includes("/voices/me-1234") && c[1]?.method === "PUT"
     );
     expect(puts).toHaveLength(1);
     expect(job.status).toBe("running");

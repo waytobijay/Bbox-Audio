@@ -443,7 +443,14 @@ modal token new</code></pre></div>
       It prints a URL ending in <code>.modal.run</code>.
     </li>
     <li>In <strong>Admin → Backends</strong>, find <strong>Modal</strong> under “Not connected yet”, paste that URL, and press <strong>Add</strong>.</li>
+    <li>Leave <strong>Active backend</strong> on <strong>Auto</strong> and check Modal sits <em>last</em> in the order (it shows “last resort”). Use the ↓ button if it doesn't.</li>
   </ol>
+  <div class="ok">
+    <p><span class="label">Modal as a pure fallback.</span> With that ordering, every job goes to Colab or Kaggle while either is running, and Modal is only woken when both are offline. Since Modal bills per second and sleeps at zero, an untouched fallback costs nothing.</p>
+  </div>
+  <div class="note">
+    <p><span class="label">Modal never heartbeats, by design.</span> It has a permanent URL and scales to zero, so it is not aged out the way a Colab tunnel is — a quiet Modal still counts as available. Colab and Kaggle go Offline after three missed heartbeats; Modal doesn't.</p>
+  </div>
 
   <h3>Automatic redeploys (optional)</h3>
   <p>The repo ships a GitHub Action that redeploys Modal whenever <code>backend/</code> or <code>modal/</code> changes. Add two repository secrets under <strong>Settings → Secrets and variables → Actions</strong>:</p>
@@ -476,7 +483,7 @@ modal token new</code></pre></div>
   <h2>Switching and fallback</h2>
   <p>At the top of <strong>Admin → Backends</strong> you choose what's active:</p>
   <ul>
-    <li><strong>Auto</strong> — use the first healthy backend by priority (Modal, then Colab, then Kaggle, then Custom). If one dies, the next takes over with no action from you.</li>
+    <li><strong>Auto</strong> — use the first healthy backend in the listed order. Default is <strong>Colab → Kaggle → Custom → Modal</strong>: free GPUs first, paid last, so Modal only picks up work when the notebooks are genuinely down. Reorder any card with the ↑ ↓ buttons.</li>
     <li><strong>A specific provider</strong> — pin everything to that one. If it's offline, requests fail with a clear message rather than quietly going elsewhere.</li>
   </ul>
   <p>A backend is marked <strong>Offline</strong> after three missed heartbeats (about three minutes). <strong>Disable</strong> keeps a backend registered but out of rotation, and that choice survives the notebook re-registering.</p>

@@ -27,17 +27,30 @@ const ACTIVE_KEY = "vf:backend:active";
 export const HEARTBEAT_SECONDS = 60;
 export const OFFLINE_AFTER_SECONDS = HEARTBEAT_SECONDS * 3;
 
+/**
+ * Lower wins under "auto". Free GPUs first, paid last: Modal bills per second,
+ * so it should only pick up work when the free backends are actually down.
+ * Reorder it per backend in Admin → Backends if you'd rather it led.
+ */
 const DEFAULT_PRIORITY: Record<BackendProvider, number> = {
-  modal: 0, // permanent + scale-to-zero, so it wins by default
-  colab: 1,
-  kaggle: 2,
-  custom: 3,
+  colab: 0,
+  kaggle: 1,
+  custom: 2,
+  modal: 3,
 };
 
 export function computeHealth(b: RegisteredBackend, now = Date.now()): BackendHealthKind {
   if (!b.enabled) return "disabled";
-  const age = (now - b.lastHeartbeat) / 1000;
-  if (age > OFFLINE_AFTER_SECONDS) return "offline";
+
+  // Only heartbeating backends can be aged out. Modal and custom URLs are
+  // permanent endpoints that never check in — Modal in particular scales to
+  // zero, so "quiet" is its normal state. Expiring them would silently remove
+  // the fallback you added precisely for when the notebooks are down.
+  if (b.selfRegistered !== false) {
+    const age = (now - b.lastHeartbeat) / 1000;
+    if (age > OFFLINE_AFTER_SECONDS) return "offline";
+  }
+
   return b.busy ? "busy" : "online";
 }
 
@@ -70,7 +83,10 @@ export async function listBackends(): Promise<BackendView[]> {
  * survive re-registration, so a Colab restart can't silently re-enable a
  * backend the admin turned off.
  */
-export async function registerBackend(reg: BackendRegistration): Promise<RegisteredBackend> {
+export async function registerBackend(
+  reg: BackendRegistration,
+  opts: { selfRegistered?: boolean } = {}
+): Promise<RegisteredBackend> {
   const existing = await kvGet<RegisteredBackend>(KEY(reg.provider));
   const now = Date.now();
   const row: RegisteredBackend = {
@@ -83,6 +99,7 @@ export async function registerBackend(reg: BackendRegistration): Promise<Registe
     lastHeartbeat: now,
     enabled: existing?.enabled ?? true,
     priority: existing?.priority ?? DEFAULT_PRIORITY[reg.provider],
+    selfRegistered: opts.selfRegistered ?? true,
     busy: false,
     voicesCached: existing?.voicesCached ?? [],
     gpuSecondsMonth: existing?.gpuSecondsMonth ?? 0,

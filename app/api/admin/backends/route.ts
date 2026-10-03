@@ -65,7 +65,12 @@ export async function PATCH(req: NextRequest) {
   if ("url" in body) {
     // Registering by hand still goes through the same path as
     // self-registration, so there's one code path for liveness.
-    const row = await registerBackend({ provider: body.provider, url: body.url });
+    const row = await registerBackend(
+      { provider: body.provider, url: body.url },
+      // Typed in by hand: there's no notebook to heartbeat, so this row must
+      // not be aged out like a Colab tunnel.
+      { selfRegistered: false }
+    );
     return NextResponse.json({ ok: true, backend: row });
   }
 

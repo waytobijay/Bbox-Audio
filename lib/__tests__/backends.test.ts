@@ -99,3 +99,81 @@ describe("auto-selection semantics", () => {
     expect(pick([backend({ provider: "modal", priority: 0, busy: true })])).toBe("modal");
   });
 });
+
+describe("backends that never heartbeat", () => {
+  /**
+   * Modal and hand-entered custom URLs are permanent endpoints with no
+   * notebook behind them, and Modal scales to zero so silence is its normal
+   * state. Ageing them out by heartbeat would quietly delete the fallback you
+   * added for exactly the moment the notebooks are down.
+   */
+  it("stays online however long ago it was added", () => {
+    const ancient = NOW - 30 * 24 * 60 * 60 * 1000;
+    expect(
+      computeHealth(backend({ provider: "modal", selfRegistered: false, lastHeartbeat: ancient }), NOW)
+    ).toBe("online");
+  });
+
+  it("still respects the admin's disable switch", () => {
+    expect(
+      computeHealth(backend({ provider: "modal", selfRegistered: false, enabled: false }), NOW)
+    ).toBe("disabled");
+  });
+
+  it("still reports busy while it's rendering", () => {
+    expect(
+      computeHealth(backend({ provider: "modal", selfRegistered: false, busy: true }), NOW)
+    ).toBe("busy");
+  });
+
+  it("does not change how a heartbeating backend is judged", () => {
+    const dead = NOW - (OFFLINE_AFTER_SECONDS + 1) * 1000;
+    expect(
+      computeHealth(backend({ provider: "colab", selfRegistered: true, lastHeartbeat: dead }), NOW)
+    ).toBe("offline");
+  });
+});
+
+describe("paid fallback ordering", () => {
+  // The point of the priority change: Modal bills per second, so it must only
+  // pick up work once the free GPUs are genuinely unavailable.
+  const usable = (h: string) => h === "online" || h === "busy";
+  const pick = (rows: RegisteredBackend[]) =>
+    rows
+      .slice()
+      .sort((a, b) => a.priority - b.priority)
+      .find((r) => usable(computeHealth(r, NOW)))?.provider ?? null;
+
+  const dead = NOW - (OFFLINE_AFTER_SECONDS + 5) * 1000;
+  const modal = backend({ provider: "modal", priority: 3, selfRegistered: false, lastHeartbeat: dead });
+
+  it("prefers a live Colab over Modal", () => {
+    expect(pick([modal, backend({ provider: "colab", priority: 0, lastHeartbeat: NOW })])).toBe("colab");
+  });
+
+  it("prefers Kaggle over Modal when Colab is down", () => {
+    expect(
+      pick([
+        modal,
+        backend({ provider: "colab", priority: 0, lastHeartbeat: dead }),
+        backend({ provider: "kaggle", priority: 1, lastHeartbeat: NOW }),
+      ])
+    ).toBe("kaggle");
+  });
+
+  it("falls through to Modal only when both free backends are down", () => {
+    expect(
+      pick([
+        modal,
+        backend({ provider: "colab", priority: 0, lastHeartbeat: dead }),
+        backend({ provider: "kaggle", priority: 1, lastHeartbeat: dead }),
+      ])
+    ).toBe("modal");
+  });
+
+  it("does not reach Modal just because Colab is busy — jobs queue instead", () => {
+    expect(
+      pick([modal, backend({ provider: "colab", priority: 0, lastHeartbeat: NOW, busy: true })])
+    ).toBe("colab");
+  });
+});

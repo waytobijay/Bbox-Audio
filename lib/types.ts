@@ -170,6 +170,12 @@ export interface RegisteredBackend extends BackendRegistration {
   enabled: boolean;
   /** Lower wins when the active selection is "auto". */
   priority: number;
+  /**
+   * True when a notebook registered itself and keeps heartbeating. False for
+   * a URL typed into the admin panel (Modal, custom), which has no heartbeat
+   * and must NOT be aged out — see computeHealth.
+   */
+  selfRegistered?: boolean;
   busy?: boolean;
   voicesCached?: string[];
   /** Summed from job gen_seconds — used for the Modal free-credit gauge. */
