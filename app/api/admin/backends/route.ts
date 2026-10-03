@@ -13,11 +13,11 @@ import {
   updateBackend,
 } from "@/lib/server/backends";
 import { isRedisConfigured } from "@/lib/server/redis";
+import { backendPatchSchema, providerSchema } from "@/lib/server/backendPatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const providerSchema = z.enum(["modal", "colab", "kaggle", "custom"]);
 
 export async function GET() {
   const [backends, active] = await Promise.all([listBackends(), getActiveSelection()]);
@@ -30,29 +30,14 @@ export async function GET() {
   });
 }
 
-const patchSchema = z.union([
-  z.object({ active: z.union([z.literal("auto"), providerSchema]) }),
-  z.object({
-    provider: providerSchema,
-    enabled: z.boolean().optional(),
-    priority: z.number().int().min(0).max(99).optional(),
-  }),
-  // Modal and Custom are the two an admin registers by hand: Modal has a
-  // permanent URL printed by `modal deploy`, so there's nothing to
-  // self-register, and Custom is any other conforming backend.
-  z.object({
-    provider: z.enum(["modal", "custom"]),
-    url: z.string().url().max(500),
-  }),
-]);
 
 export async function PATCH(req: NextRequest) {
   if (!isRedisConfigured()) {
     return NextResponse.json({ error: "Storage isn't connected." }, { status: 503 });
   }
-  let body: z.infer<typeof patchSchema>;
+  let body: z.infer<typeof backendPatchSchema>;
   try {
-    body = patchSchema.parse(await req.json());
+    body = backendPatchSchema.parse(await req.json());
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
