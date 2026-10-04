@@ -51,12 +51,21 @@ export async function PATCH(req: NextRequest) {
   if ("url" in body) {
     const url = body.url.replace(/[/]+$/, "");
 
+    // Modal serves TTS and rendering from two separate functions, which means
+    // two URLs that differ only in the trailing function name. Derive the
+    // render one and prove it answers, rather than asking for it in the UI —
+    // a field nobody can fill in correctly is worse than no field.
+    const MODAL_API = "-api.modal.run";
+    const renderCandidate = url.endsWith(MODAL_API)
+      ? url.slice(0, -MODAL_API.length) + "-render.modal.run"
+      : url;
+
     // Ask what it is. A self-registering notebook sends its GPU and models
     // when it checks in; a URL typed in here has nobody to do that, so the
     // card would otherwise show no GPU and no models — which also greys out
     // the model picker in the studio. Best-effort: an unreachable backend is
     // still worth registering, since Modal may simply be asleep.
-    let probed: { gpu?: string; models?: string[]; version?: string } = {};
+    let probed: { gpu?: string; models?: string[]; version?: string; capabilities?: string[] } = {};
     try {
       const res = await fetch(`${url}/health`, {
         headers: backendHeaders(),
@@ -67,17 +76,43 @@ export async function PATCH(req: NextRequest) {
           gpu?: string;
           models?: string[];
           version?: string;
+          capabilities?: string[];
         };
-        probed = { gpu: h.gpu, models: h.models, version: h.version };
+        probed = {
+          gpu: h.gpu,
+          models: h.models,
+          version: h.version,
+          capabilities: h.capabilities,
+        };
       }
     } catch {
       /* asleep or unreachable — register it anyway */
     }
 
+    let renderUrl: string | undefined;
+    let capabilities = probed.capabilities;
+    if (renderCandidate !== url) {
+      try {
+        const res = await fetch(`${renderCandidate}/health`, {
+          headers: backendHeaders(),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (res.ok) {
+          const h = (await res.json()) as { capabilities?: string[] };
+          if ((h.capabilities ?? []).includes("render")) {
+            renderUrl = renderCandidate;
+            capabilities = Array.from(new Set([...(capabilities ?? ["tts"]), "render"]));
+          }
+        }
+      } catch {
+        /* no render function deployed yet — TTS still works on its own */
+      }
+    }
+
     // Registering by hand still goes through the same path as
     // self-registration, so there's one code path for liveness.
     const row = await registerBackend(
-      { provider: body.provider, url, ...probed },
+      { provider: body.provider, url, ...probed, renderUrl, capabilities },
       // Typed in by hand: there's no notebook to heartbeat, so this row must
       // not be aged out like a Colab tunnel.
       { selfRegistered: false }
