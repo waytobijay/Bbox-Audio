@@ -564,7 +564,14 @@ def create_render_router(check_secret) -> APIRouter:
         job_id = str(req.get("job_id") or uuid.uuid4().hex)
         req["job_id"] = job_id
         with _LOCK:
-            RENDERS[job_id] = {"status": "queued", "stage": "queued", "progress": 0}
+            RENDERS[job_id] = {
+                "status": "queued",
+                "stage": "queued",
+                "progress": 0,
+                # Lets the finished file be fetched with ?token=… — see the
+                # video route below.
+                "token": str(req.get("callback_token") or ""),
+            }
         threading.Thread(target=_run_render, args=(req,), daemon=True).start()
         return {"accepted": True, "job_id": job_id}
 
@@ -576,13 +583,26 @@ def create_render_router(check_secret) -> APIRouter:
         if not job:
             raise HTTPException(status_code=404, detail="unknown render")
         # Never leak local paths to the caller.
-        return {k: v for k, v in job.items() if k not in ("path", "work")}
+        return {k: v for k, v in job.items() if k not in ("path", "work", "token")}
 
     @router.get("/render/{job_id}/video")
-    def render_video(job_id: str, x_backend_secret: Optional[str] = Header(None)):
-        check_secret(x_backend_secret)
+    def render_video(
+        job_id: str,
+        token: Optional[str] = None,
+        x_backend_secret: Optional[str] = Header(None),
+    ):
+        """The one route that accepts a query-string token.
+
+        n8n downloads this file with a plain GET and cannot set headers on a
+        binary download the way it can on an API call. The token is the job's
+        own callback token — unguessable and useless for any other render —
+        so this is no weaker than the header, just usable from a browser or a
+        download node."""
         with _LOCK:
             job = RENDERS.get(job_id)
+        expected = (job or {}).get("token")
+        if not (token and expected and token == expected):
+            check_secret(x_backend_secret)
         if not job or job.get("status") != "done":
             raise HTTPException(status_code=404, detail="render not finished")
         path = job.get("path")

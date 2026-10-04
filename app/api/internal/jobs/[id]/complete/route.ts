@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { collectJob, getJob, isValidCallbackToken, saveJob } from "@/lib/server/jobs";
+import { completeRender } from "@/lib/server/videojobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export const maxDuration = 60;
 
 const schema = z.object({
   job_id: z.string().optional(),
+  kind: z.enum(["tts", "video"]).optional(),
   status: z.string(),
   mode: z.enum(["stitch", "items"]).optional(),
   format: z.enum(["mp3", "wav"]).optional(),
@@ -57,7 +59,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
 
-  const collected = await collectJob(job, body);
+  // A video render is already a file on the backend; there is nothing to
+  // collect, only a URL to record. Pulling 400 MB through this function to
+  // put it in Blob would be slow and pointless.
+  const collected =
+    job.kind === "video" || body.kind === "video"
+      ? await completeRender(job, body)
+      : await collectJob(job, body);
 
   // Hand the finished job to whoever asked for a callback (n8n's Wait node
   // resume URL, typically). Failures here must not fail the collection, so
@@ -72,6 +80,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           status: collected.status,
           duration: collected.duration,
           audio_url: collected.audioUrl,
+          video_url: collected.videoUrl,
           items: collected.items?.map((i) => ({
             index: i.index,
             duration: i.duration,

@@ -353,7 +353,7 @@ def _run_job(job: Dict[str, Any]) -> None:
 # app
 # ---------------------------------------------------------------------------
 
-def create_app(provider: str = "custom") -> FastAPI:
+def create_app(provider: str = "custom", with_render: bool = True) -> FastAPI:
     app = FastAPI(title="VoiceForge backend", version=VERSION)
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
@@ -366,6 +366,19 @@ def create_app(provider: str = "custom") -> FastAPI:
         if expected and secret != expected:
             raise HTTPException(status_code=401, detail="bad backend secret")
 
+    # Long-form rendering lives in its own module with no torch dependency, so
+    # one notebook session can serve TTS and video without a second Run All.
+    # If the file is missing (an older notebook), TTS still works on its own.
+    render_mounted = False
+    if with_render:
+        try:
+            from backend.voiceforge_render import create_render_router
+
+            app.include_router(create_render_router(_check))
+            render_mounted = True
+        except Exception as e:  # noqa: BLE001
+            print("[voiceforge] render routes unavailable:", e, flush=True)
+
     @app.get("/health")
     def health() -> dict:
         return {
@@ -376,6 +389,7 @@ def create_app(provider: str = "custom") -> FastAPI:
             "voices_cached": list(VOICES.keys()),
             "busy": _BUSY,
             "version": VERSION,
+            "capabilities": ["tts"] + (["render"] if render_mounted else []),
         }
 
     @app.put("/voices/{voice_id}")

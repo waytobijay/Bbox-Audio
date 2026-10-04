@@ -7,6 +7,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { deleteJob, listJobs, reconcileJob } from "@/lib/server/jobs";
+import { reconcileRender } from "@/lib/server/videojobs";
 import { isRedisConfigured } from "@/lib/server/redis";
 
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export async function GET() {
       // backend, and on Modal that can wake a billed GPU container.
       const stale = Date.now() - job.updatedAt > 30_000;
       return (job.status === "running" || job.status === "queued") && stale
-        ? reconcileJob(job).catch(() => job)
+        ? (job.kind === "video" ? reconcileRender(job) : reconcileJob(job)).catch(() => job)
         : job;
     })
   );
@@ -42,6 +43,10 @@ export async function GET() {
       duration: j.duration,
       genSeconds: j.genSeconds,
       audioUrl: j.audioUrl,
+      kind: j.kind,
+      videoUrl: j.videoUrl,
+      progress: j.progress,
+      stage: j.stage,
       items: j.items,
       error: j.error,
     })),

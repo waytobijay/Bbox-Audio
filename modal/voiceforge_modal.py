@@ -50,6 +50,16 @@ image = (
     .add_local_dir("backend", remote_path="/root/backend")
 )
 
+# A deliberately thin image for rendering: ffmpeg and fastapi, no torch and no
+# model weights. It builds in seconds and cold-starts fast, which matters
+# because a render is CPU work that must never wait on a GPU image.
+render_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg", "fonts-dejavu-core")
+    .pip_install("fastapi[standard]")
+    .add_local_dir("backend", remote_path="/root/backend")
+)
+
 app = modal.App(APP_NAME)
 
 # Cached reference clips survive container restarts, so a voice is downloaded
@@ -84,6 +94,30 @@ def api():
 
     load_models()
     return create_app(provider="modal")
+
+
+@app.function(
+    image=render_image,
+    secrets=[secret],
+    # NO gpu= on purpose. Rendering is ffmpeg on CPU; billing a T4 to run it
+    # would cost about ten times as much and wake a GPU for nothing.
+    cpu=8.0,
+    memory=8192,
+    max_containers=1,
+    # Longer than the GPU function: a 20-minute video is a long job, and
+    # being killed at the 30-minute mark would waste everything done so far.
+    timeout=60 * 120,
+    scaledown_window=180,
+)
+@modal.asgi_app()
+def render():
+    """Long-form video assembly. CPU only — see the note above."""
+    import sys
+
+    sys.path.insert(0, "/root")
+    from backend.voiceforge_render import create_render_app
+
+    return create_render_app(provider="modal")
 
 
 @app.function(image=image, secrets=[secret], max_containers=1)

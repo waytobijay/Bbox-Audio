@@ -160,6 +160,14 @@ export interface BackendRegistration {
   gpu?: string;
   models?: string[];
   version?: string;
+  /**
+   * Where video renders go, when that is a different address from TTS.
+   * Colab and Kaggle serve both from one tunnel and leave this unset; Modal
+   * sets it to its CPU-only function so rendering never bills a T4.
+   */
+  renderUrl?: string;
+  /** What this backend can actually do — defaults to ["tts"]. */
+  capabilities?: string[];
 }
 
 /** A row in the registry, as stored. */
@@ -255,4 +263,16 @@ export interface Asset {
   sizeBytes: number;
   durationSec?: number;
   createdAt: number;
+}
+
+/** One scene in a long-form render. */
+export interface VideoScene {
+  /** "image" gets Ken Burns; "clip" plays as-is, padded or trimmed to fit. */
+  type: "image" | "clip";
+  url: string;
+  /** Narration for this scene, usually a /api/v1/tts/batch result. */
+  audioUrl?: string;
+  caption?: string;
+  /** Overrides the duration; otherwise the narration decides it. */
+  seconds?: number;
 }

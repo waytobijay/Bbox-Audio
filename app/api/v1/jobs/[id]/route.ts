@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { apiError, authenticate } from "@/lib/server/apiauth";
 import { getJob, reconcileJob } from "@/lib/server/jobs";
+import { reconcileRender } from "@/lib/server/videojobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     (job.status === "running" || job.status === "queued") &&
     Date.now() - job.updatedAt > RECONCILE_AFTER_MS
   ) {
-    job = await reconcileJob(job);
+    job = job.kind === "video" ? await reconcileRender(job) : await reconcileJob(job);
   }
 
   return NextResponse.json({
@@ -45,6 +46,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     ...(job.duration !== undefined ? { duration: job.duration } : {}),
     ...(job.genSeconds !== undefined ? { gen_seconds: job.genSeconds } : {}),
     ...(job.audioUrl ? { audio_url: job.audioUrl } : {}),
+    ...(job.videoUrl ? { video_url: job.videoUrl, bytes: job.videoBytes } : {}),
+    ...(job.progress !== undefined ? { progress: job.progress, stage: job.stage } : {}),
     ...(job.mode === "items" && job.items
       ? {
           items: job.items.map((i) => ({

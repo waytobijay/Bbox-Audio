@@ -43,6 +43,8 @@ export interface JobItem {
 export interface Job {
   id: string;
   status: JobStatus;
+  /** "tts" by default; video renders share this record but finish differently. */
+  kind?: "tts" | "video";
   mode: JobMode;
   format: "mp3" | "wav";
   voiceId: string;
@@ -63,6 +65,14 @@ export interface Job {
   callbackUrl?: string;
   /** Set once we've delivered the callback, so a retry can't double-fire. */
   callbackSentAt?: number;
+
+  // --- video renders only ---
+  /** Served by the render backend, not Blob — see lib/server/videojobs.ts. */
+  videoUrl?: string;
+  videoBytes?: number;
+  /** 0-100 while rendering, so a long job isn't a black box. */
+  progress?: number;
+  stage?: string;
 }
 
 export async function getJob(id: string): Promise<Job | null> {

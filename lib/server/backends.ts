@@ -95,6 +95,8 @@ export async function registerBackend(
     gpu: reg.gpu ?? existing?.gpu,
     models: reg.models ?? existing?.models ?? [],
     version: reg.version ?? existing?.version,
+    renderUrl: reg.renderUrl ?? existing?.renderUrl,
+    capabilities: reg.capabilities ?? existing?.capabilities ?? ["tts"],
     registeredAt: existing?.registeredAt ?? now,
     lastHeartbeat: now,
     enabled: existing?.enabled ?? true,
@@ -152,6 +154,24 @@ export async function resolveBackend(): Promise<BackendView | null> {
   return pinned && usable(pinned) ? pinned : null;
 }
 
+/**
+ * Where a render should go, and nothing else.
+ *
+ * Falls back to the main url when renderUrl is unset, because a notebook
+ * serves both from one tunnel. A backend that cannot render is skipped
+ * entirely rather than being sent a request it will 404.
+ */
+export async function resolveRenderBackend(): Promise<{ backend: BackendView; url: string } | null> {
+  const [selection, all] = await Promise.all([getActiveSelection(), listBackends()]);
+  const usable = (b: BackendView) =>
+    (b.health === "online" || b.health === "busy") &&
+    (b.capabilities ?? ["tts"]).includes("render");
+
+  const candidates = selection === "auto" ? all : all.filter((b) => b.provider === selection);
+  const found = candidates.find(usable);
+  return found ? { backend: found, url: found.renderUrl ?? found.url } : null;
+}
+
 // --- auth for machine endpoints ------------------------------------------
 
 async function constantTimeEquals(a: string, b: string): Promise<boolean> {
@@ -202,7 +222,13 @@ export function backendHeaders(): Record<string, string> {
  */
 export async function recordHealthFacts(
   provider: BackendProvider,
-  health: { gpu?: string; models?: string[]; version?: string; voices_cached?: string[] }
+  health: {
+    gpu?: string;
+    models?: string[];
+    version?: string;
+    voices_cached?: string[];
+    capabilities?: string[];
+  }
 ): Promise<void> {
   const existing = await kvGet<RegisteredBackend>(KEY(provider));
   if (!existing) return;
@@ -213,12 +239,14 @@ export async function recordHealthFacts(
     models: health.models?.length ? health.models : existing.models,
     version: health.version ?? existing.version,
     voicesCached: health.voices_cached ?? existing.voicesCached,
+    capabilities: health.capabilities?.length ? health.capabilities : existing.capabilities,
   };
 
   const unchanged =
     next.gpu === existing.gpu &&
     next.version === existing.version &&
     next.models.join() === existing.models.join() &&
+    (next.capabilities ?? []).join() === (existing.capabilities ?? []).join() &&
     (next.voicesCached ?? []).join() === (existing.voicesCached ?? []).join();
   if (unchanged) return;
 

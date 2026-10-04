@@ -22,7 +22,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_ITEMS = 50;
+// A 20-minute video is roughly 100 scenes; 50 was sized for a Short.
+const MAX_ITEMS = 250;
 const MAX_ITEM_CHARS = 2000;
 
 const schema = z.object({
