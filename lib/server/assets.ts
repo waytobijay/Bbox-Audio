@@ -27,7 +27,7 @@ const ALLOWED: Record<AssetKind, RegExp> = {
   music: /^audio\//,
   sfx: /^audio\//,
   motion: /^video\//,
-  banner: /^image\//,
+  banner: /^image\/(png|jpeg|jpg|webp)$/,
   intro: /^video\//,
   outro: /^video\//,
   clip: /^video\//,
@@ -88,10 +88,16 @@ export function assetExtension(fileName: string, mime: string): string {
 }
 
 export function assertAllowed(kind: AssetKind, mime: string): void {
-  if (!ALLOWED[kind].test(mime)) {
-    const want = ALLOWED[kind].source.replace(/[^a-z]/g, "");
-    throw new AssetError(`A ${kind} asset must be ${want}, not "${mime}".`);
+  if (ALLOWED[kind].test(mime)) return;
+
+  if (kind === "banner" && mime === "image/svg+xml") {
+    throw new AssetError(
+      "ffmpeg can't read SVG. Convert the logo to a PNG with transparency first."
+    );
   }
+  const want =
+    kind === "banner" ? "a PNG, JPEG or WebP" : ALLOWED[kind].source.replace(/[^a-z]/g, "");
+  throw new AssetError(`A ${kind} asset must be ${want}, not "${mime}".`);
 }
 
 /**

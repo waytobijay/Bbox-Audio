@@ -40,6 +40,18 @@ describe("assertAllowed", () => {
     expect(() => assertAllowed("banner", "audio/mpeg")).toThrow(AssetError);
   });
 
+  it("rejects an SVG banner and says what to do about it", () => {
+    // SVG passes a naive image/* test but ffmpeg cannot decode it on the
+    // Debian build Modal uses — it would fail inside a render instead.
+    expect(() => assertAllowed("banner", "image/svg+xml")).toThrow(/PNG with transparency/i);
+  });
+
+  it("accepts the raster formats a banner may actually be", () => {
+    for (const m of ["image/png", "image/jpeg", "image/webp"]) {
+      expect(() => assertAllowed("banner", m)).not.toThrow();
+    }
+  });
+
   it("rejects a motion overlay that is actually audio", () => {
     expect(() => assertAllowed("motion", "audio/wav")).toThrow();
   });

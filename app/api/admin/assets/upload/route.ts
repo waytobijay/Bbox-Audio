@@ -24,7 +24,8 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   music: ["audio/*"],
   sfx: ["audio/*"],
   motion: ["video/*"],
-  banner: ["image/*"],
+  // Raster only: ffmpeg cannot decode SVG on the Debian build Modal uses.
+  banner: ["image/png", "image/jpeg", "image/webp"],
   intro: ["video/*"],
   outro: ["video/*"],
   clip: ["video/*"],
