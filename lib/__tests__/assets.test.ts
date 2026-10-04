@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AssetError,
   assertAllowed,
+  assertOurBlobUrl,
   assetExtension,
   isAssetKind,
   sample,
@@ -104,5 +105,46 @@ describe("sample", () => {
 
   it("is driven by the supplied randomness, so it can be pinned", () => {
     expect(sample(items, 2, () => 0)).toEqual(["a", "b"]);
+  });
+});
+
+describe("assertOurBlobUrl", () => {
+  /**
+   * The browser uploads straight to Blob and then tells us where the file
+   * landed. The upload token already restricts where it may write; this stops
+   * a crafted metadata call from pointing a library row at someone else's
+   * file.
+   */
+  const ours = "https://abc123.public.blob.vercel-storage.com/assets/music/1-track.mp3";
+
+  it("accepts a URL from our own store under the right kind", () => {
+    expect(() => assertOurBlobUrl(ours, "music")).not.toThrow();
+  });
+
+  it("rejects another host entirely", () => {
+    expect(() => assertOurBlobUrl("https://evil.example.com/assets/music/x.mp3", "music")).toThrow(
+      AssetError
+    );
+  });
+
+  it("rejects plain http", () => {
+    expect(() =>
+      assertOurBlobUrl("http://abc.public.blob.vercel-storage.com/assets/music/x.mp3", "music")
+    ).toThrow();
+  });
+
+  it("rejects a file filed under a different kind", () => {
+    // Otherwise a banner row could point at an audio file and fail inside ffmpeg.
+    expect(() => assertOurBlobUrl(ours, "banner")).toThrow(/asset kind/i);
+  });
+
+  it("rejects something that isn't a URL", () => {
+    expect(() => assertOurBlobUrl("not a url", "music")).toThrow(/valid URL/i);
+  });
+
+  it("rejects a lookalike hostname", () => {
+    expect(() =>
+      assertOurBlobUrl("https://vercel-storage.com.evil.net/assets/music/x.mp3", "music")
+    ).toThrow();
   });
 });

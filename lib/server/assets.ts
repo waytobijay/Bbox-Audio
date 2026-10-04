@@ -13,7 +13,7 @@
 
 import type { Asset, AssetKind } from "@/lib/types";
 import { ASSET_KINDS } from "@/lib/types";
-import { deleteBlob, isBlobConfigured, putBlob } from "./blob";
+import { deleteBlob, isBlobConfigured } from "./blob";
 import { isRedisConfigured, kvDel, kvGet, kvSet } from "./redis";
 
 const KEY = (id: string) => `vf:asset:${id}`;
@@ -130,37 +130,58 @@ export async function getAsset(id: string): Promise<Asset | null> {
   return kvGet<Asset>(KEY(id));
 }
 
-export interface CreateAssetInput {
+export interface RegisterAssetInput {
   kind: AssetKind;
   name: string;
   tag?: string;
-  fileName: string;
+  /** Blob URL the browser just wrote to, verified below. */
+  url: string;
   mime: string;
-  bytes: ArrayBuffer;
+  sizeBytes: number;
   durationSec?: number;
 }
 
-export async function createAsset(input: CreateAssetInput): Promise<Asset> {
+/**
+ * A URL is only accepted if it looks like our own Blob store and sits under
+ * assets/<kind>/. The upload token already restricts where the browser can
+ * write; this stops a crafted metadata call pointing a row at someone else's
+ * file.
+ */
+export function assertOurBlobUrl(url: string, kind: AssetKind): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new AssetError("That isn't a valid URL.");
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname.endsWith(".vercel-storage.com")) {
+    throw new AssetError("That file isn't in this project's Blob store.");
+  }
+  if (!parsed.pathname.includes(`assets/${kind}/`)) {
+    throw new AssetError("That file isn't stored under this asset kind.");
+  }
+}
+
+export async function registerAsset(input: RegisterAssetInput): Promise<Asset> {
   if (!isAssetStorageReady()) {
     throw new AssetError(assetStorageHint() ?? "Storage isn't connected.", 503);
   }
-  if (input.bytes.byteLength > MAX_ASSET_BYTES) {
+  if (input.sizeBytes > MAX_ASSET_BYTES) {
     throw new AssetError("That file is over 50 MB.", 413);
   }
   assertAllowed(input.kind, input.mime);
+  assertOurBlobUrl(input.url, input.kind);
 
-  const id = `${slugifyAssetName(input.name || input.fileName)}-${crypto.randomUUID().slice(0, 8)}`;
-  const ext = assetExtension(input.fileName, input.mime);
-  const blob = await putBlob(`assets/${input.kind}/${id}.${ext}`, input.bytes, input.mime);
+  const id = `${slugifyAssetName(input.name)}-${crypto.randomUUID().slice(0, 8)}`;
 
   const asset: Asset = {
     id,
     kind: input.kind,
-    name: (input.name || input.fileName).trim().slice(0, 80),
+    name: input.name.trim().slice(0, 80) || "Untitled",
     tag: input.tag?.trim().slice(0, 40) || undefined,
-    url: blob.url,
+    url: input.url,
     mime: input.mime,
-    sizeBytes: input.bytes.byteLength,
+    sizeBytes: input.sizeBytes,
     durationSec: input.durationSec,
     createdAt: Date.now(),
   };

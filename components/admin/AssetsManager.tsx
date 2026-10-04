@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import type { Asset, AssetKind } from "@/lib/types";
@@ -123,7 +124,11 @@ export function AssetsManager() {
         </div>
       ) : null}
 
-      <UploadCard disabled={!data.storageReady || busy} onUploaded={load} />
+      <UploadCard
+        disabled={!data.storageReady || busy}
+        maxBytes={data.maxBytes}
+        onUploaded={load}
+      />
 
       {/* Kind filter with counts, so you can see which shelves are bare. */}
       <div className="flex flex-wrap gap-2">
@@ -216,7 +221,15 @@ export function AssetsManager() {
   );
 }
 
-function UploadCard({ disabled, onUploaded }: { disabled: boolean; onUploaded: () => void }) {
+function UploadCard({
+  disabled,
+  maxBytes,
+  onUploaded,
+}: {
+  disabled: boolean;
+  maxBytes: number;
+  onUploaded: () => void;
+}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState<AssetKind>("music");
   const [files, setFiles] = useState<File[]>([]);
@@ -224,27 +237,78 @@ function UploadCard({ disabled, onUploaded }: { disabled: boolean; onUploaded: (
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState("");
 
-  /** Sequential on purpose: a browser throttles parallel uploads anyway, and
-   *  one-at-a-time lets a single bad file be named without losing the rest. */
-  async function upload() {
+  /**
+   * Read a media file's duration without decoding it, so the library can show
+   * it. Best-effort: a failure here must not stop the upload.
+   */
+  async function durationOf(file: File): Promise<number | undefined> {
+    const isMedia = file.type.startsWith("audio/") || file.type.startsWith("video/");
+    if (!isMedia) return undefined;
+    const url = URL.createObjectURL(file);
+    try {
+      return await new Promise<number | undefined>((resolve) => {
+        const el = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
+        el.preload = "metadata";
+        el.onloadedmetadata = () => resolve(Number.isFinite(el.duration) ? el.duration : undefined);
+        el.onerror = () => resolve(undefined);
+        el.src = url;
+        setTimeout(() => resolve(undefined), 5000);
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /**
+   * Straight to Blob, then tell our API where it landed.
+   *
+   * The file deliberately does not pass through a Vercel function: anything
+   * over 4.5 MB is rejected with FUNCTION_PAYLOAD_TOO_LARGE, which silently
+   * capped uploads below the size of a typical music track.
+   *
+   * Sequential on purpose — one at a time lets a single bad file be named
+   * without losing the rest of the batch.
+   */
+  async function uploadAll() {
     if (!files.length) return;
     setUploading(true);
     let ok = 0;
     try {
       for (const [i, file] of files.entries()) {
-        setProgress(`${i + 1} of ${files.length}…`);
-        const form = new FormData();
-        form.append("file", file);
-        form.append("kind", kind);
-        form.append("name", file.name);
-        if (tag.trim()) form.append("tag", tag.trim());
+        setProgress(`${i + 1} of ${files.length} — ${file.name}`);
+        try {
+          if (file.size > maxBytes) {
+            throw new Error(`over ${Math.round(maxBytes / 1024 / 1024)} MB`);
+          }
+          const mime = file.type || "application/octet-stream";
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+          const blob = await upload(`assets/${kind}/${Date.now()}-${safeName}`, file, {
+            access: "public",
+            contentType: mime,
+            handleUploadUrl: "/api/admin/assets/upload",
+            clientPayload: JSON.stringify({ kind }),
+          });
 
-        const res = await fetch("/api/admin/assets", { method: "POST", body: form });
-        if (res.ok) {
+          const res = await fetch("/api/admin/assets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              kind,
+              name: file.name,
+              tag: tag.trim() || undefined,
+              url: blob.url,
+              mime,
+              sizeBytes: file.size,
+              durationSec: await durationOf(file),
+            }),
+          });
+          if (!res.ok) {
+            const json = (await res.json().catch(() => ({}))) as { error?: string };
+            throw new Error(json.error ?? "could not be recorded");
+          }
           ok++;
-        } else {
-          const json = (await res.json().catch(() => ({}))) as { error?: string };
-          toast(`${file.name}: ${json.error ?? "upload failed"}`, "error");
+        } catch (e) {
+          toast(`${file.name}: ${e instanceof Error ? e.message : "upload failed"}`, "error");
         }
       }
       if (ok) toast(`Uploaded ${ok} file${ok === 1 ? "" : "s"}.`, "success");
@@ -343,7 +407,7 @@ function UploadCard({ disabled, onUploaded }: { disabled: boolean; onUploaded: (
           size="sm"
           className="ml-auto"
           disabled={!files.length || uploading || disabled}
-          onClick={() => void upload()}
+          onClick={() => void uploadAll()}
         >
           {uploading ? "Uploading…" : "Upload"}
         </Button>
