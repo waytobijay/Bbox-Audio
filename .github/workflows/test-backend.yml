@@ -1,0 +1,75 @@
+name: Test backend
+
+# There is no Python on the machine this project is developed from, so backend
+# bugs used to be found by the user on a live Colab session, ten minutes into
+# an install. This runs on every push instead: free on a public repo, and it
+# catches a syntax error or a bad import before anyone opens a notebook.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "modal/**"
+      - "colab/**"
+      - ".github/workflows/test-backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "modal/**"
+      - "colab/**"
+  workflow_dispatch:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        # fastapi only — the renderer imports it for routing. Nothing here
+        # needs torch, a GPU or ffmpeg.
+        run: pip install --quiet pytest "fastapi>=0.110" "httpx>=0.27"
+
+      - name: Compile every backend file
+        # Catches syntax errors in files the tests do not import, including
+        # the TTS server, which cannot be imported without torch installed.
+        run: python -m compileall -q backend modal
+
+      - name: Import the renderer
+        run: python -c "from backend.voiceforge_render import create_render_app; print('render module imports cleanly')"
+
+      - name: Run tests
+        run: python -m pytest backend/tests -q
+
+      - name: Validate the notebook
+        # A malformed .ipynb fails only when Colab opens it, which is the
+        # slowest possible place to find out.
+        run: |
+          python - <<'PY'
+          import json, sys
+          path = "colab/voiceforge_server.ipynb"
+          nb = json.load(open(path, encoding="utf-8"))
+          cells = nb.get("cells", [])
+          assert cells, "notebook has no cells"
+          source = "\n".join("".join(c.get("source", [])) for c in cells)
+          for marker in ("_detect_provider", "api/backends/register", "heartbeat_loop"):
+              assert marker in source, f"notebook lost: {marker}"
+          # Compile every code cell, stripping IPython's ! and % lines.
+          for i, cell in enumerate(cells):
+              if cell.get("cell_type") != "code":
+                  continue
+              code = "".join(cell.get("source", []))
+              cleaned = "\n".join(
+                  "" if l.lstrip().startswith(("!", "%")) else l
+                  for l in code.splitlines()
+              )
+              try:
+                  compile(cleaned, f"cell{i}", "exec")
+              except SyntaxError as e:
+                  sys.exit(f"cell {i} has a syntax error: {e}")
+          print(f"notebook OK: {len(cells)} cells")
+          PY
