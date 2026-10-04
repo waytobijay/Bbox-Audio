@@ -171,7 +171,10 @@ async function ensureVoiceCached(
   try {
     const res = await fetch(`${backendUrl}/health`, {
       headers: backendHeaders(),
-      signal: AbortSignal.timeout(15_000),
+      // Short on purpose: this only tells us whether to skip the upload. A
+      // cold backend won't answer, and waiting 15s for that costs budget the
+      // dispatch itself needs.
+      signal: AbortSignal.timeout(8_000),
     });
     if (res.ok) {
       const health = (await res.json()) as {
@@ -192,12 +195,10 @@ async function ensureVoiceCached(
 
   try {
     await syncVoiceToBackend(backendUrl, voice);
-  } catch (e) {
-    throw new JobError(
-      `Couldn't send the voice to the backend: ${e instanceof Error ? e.message : "unknown error"}`,
-      502,
-      "voice_sync_failed"
-    );
+  } catch {
+    // Not fatal: the job payload carries the clip, so the worker will cache
+    // it on arrival. Failing here would turn a slow cold start into a dead
+    // job, which is exactly what it used to do.
   }
 }
 
@@ -221,8 +222,9 @@ export async function createAndDispatchJob(
     );
   }
 
-  // Before anything is written down: a job for a voice the GPU doesn't have
-  // would fail in the worker with no way to recover.
+  // Best-effort warm-up only. If the backend is awake this saves it a
+  // download; if it's cold this quietly gives up, because the job payload
+  // now carries the clip and the worker can cache it without a deadline.
   await ensureVoiceCached(backend.url, input.voiceId, backend.provider);
 
   const id = crypto.randomUUID();
@@ -245,9 +247,22 @@ export async function createAndDispatchJob(
   await saveJob(job);
   await indexJob(id);
 
+  const voice = await getVoice(input.voiceId);
   const body = {
     job_id: id,
     voice_id: input.voiceId,
+    // Carry the clip with the job so the backend can cache it ITSELF inside
+    // its background worker. That worker has no deadline; this request does
+    // (Vercel kills it at 60s), and a cold Modal container can eat 30s before
+    // it answers at all. Pre-caching from here used to blow that budget and
+    // fail the whole job with voice_not_cached / sync_failed.
+    voice: voice
+      ? {
+          audio_url: voice.audioUrl,
+          transcript: voice.transcript,
+          language: voice.language,
+        }
+      : undefined,
     chunks: input.chunks,
     paragraph_breaks: input.paragraphBreaks,
     params: input.params,
@@ -262,7 +277,10 @@ export async function createAndDispatchJob(
       method: "POST",
       headers: backendHeaders(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
+      // The one call that genuinely has to wait for a cold container to boot.
+      // Modal has been measured around 30s; give it room inside the 60s
+      // function budget now that nothing else is competing for it.
+      signal: AbortSignal.timeout(45_000),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");

@@ -294,16 +294,20 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
     });
   });
 
-  it("reports a failed voice upload instead of dispatching a doomed job", async () => {
+  it("dispatches anyway when the pre-upload fails — the worker can still cache it", async () => {
+    // This used to throw voice_sync_failed and kill the job. A failed
+    // pre-upload is now just a lost optimisation: the clip travels with the
+    // job, so the backend caches it on arrival.
     const fetchMock = routeFetch({
       "/health": { json: { voices_cached: [] } },
       "/voices/me-1234": { status: 400, body: "bad clip" },
+      "/jobs": { json: { accepted: true } },
     });
 
-    await expect(createAndDispatchJob(dispatchInput, "https://app.test")).rejects.toMatchObject({
-      code: "voice_sync_failed",
-    });
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(false);
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+
+    expect(job.status).toBe("running");
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(true);
   });
 });
 
@@ -330,5 +334,69 @@ describe("reconcile stops chasing a dead job", () => {
     await reconcileJob(job({ createdAt: Date.now() - 60_000 }));
 
     expect(fetchMock).toHaveBeenCalled();
+  });
+});
+
+describe("cold backend must not kill the job", () => {
+  /**
+   * Production failure: the first n8n scene after an idle period hit a cold
+   * Modal container. The pre-dispatch voice upload timed out and the whole
+   * job died with 502 voice_sync_failed, so the workflow fell back to a
+   * generic voice for every scene. The clip now travels WITH the job and the
+   * backend caches it in its own worker, which has no deadline.
+   */
+  const dispatchInput = {
+    chunks: ["Scene one."],
+    paragraphBreaks: [false],
+    voiceId: "me-1234",
+    mode: "stitch" as const,
+    format: "mp3" as const,
+    source: "key-1",
+    params: {},
+  };
+
+  beforeEach(() => {
+    activeBackend = { provider: "modal", url: "https://gpu.test", health: "online" };
+    voiceExists = true;
+  });
+
+  it("still dispatches when the voice upload fails on a cold backend", async () => {
+    const fetchMock = routeFetch({
+      "/health": { status: 503 },
+      "/voices/me-1234": { status: 504 },
+      "/jobs": { json: { accepted: true } },
+    });
+
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+
+    expect(job.status).toBe("running");
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(true);
+  });
+
+  it("sends the clip with the job so the worker can cache it itself", async () => {
+    const fetchMock = routeFetch({
+      "/health": { status: 503 },
+      "/voices/me-1234": { status: 504 },
+      "/jobs": { json: { accepted: true } },
+    });
+
+    await createAndDispatchJob(dispatchInput, "https://app.test");
+
+    const dispatch = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/jobs"));
+    const sent = JSON.parse(String((dispatch?.[1] as RequestInit)?.body));
+    expect(sent.voice).toEqual({
+      audio_url: "https://blob.test/voices/me-1234.wav",
+      transcript: "hello",
+      language: "en",
+    });
+  });
+
+  it("still refuses a voice that isn't in the library at all", async () => {
+    voiceExists = false;
+    routeFetch({ "/health": { json: { voices_cached: [] } } });
+
+    await expect(createAndDispatchJob(dispatchInput, "https://app.test")).rejects.toMatchObject({
+      code: "unknown_voice",
+    });
   });
 });

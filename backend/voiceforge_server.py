@@ -255,6 +255,20 @@ def _run_job(job: Dict[str, Any]) -> None:
     rendered: List[np.ndarray] = []
     sr = 24000
     try:
+        # Cache the reference clip here if we don't already have it. The
+        # gateway sends it with the job precisely so this can happen in the
+        # worker: downloading a clip onto a cold container can take longer
+        # than the gateway's own request is allowed to live, so doing it there
+        # failed the whole job instead of just being slow.
+        voice_meta = job.get("voice") or {}
+        if job["voice_id"] not in VOICES and voice_meta.get("audio_url"):
+            cache_voice(
+                job["voice_id"],
+                voice_meta["audio_url"],
+                voice_meta.get("transcript", ""),
+                voice_meta.get("language", "en"),
+            )
+
         with _GPU_LOCK:
             _BUSY = True
             for i, text in enumerate(chunks):
