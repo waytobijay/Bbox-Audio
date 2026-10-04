@@ -146,3 +146,37 @@ class TestBatching:
         batches = [scenes[i:i + DEFAULT_BATCH] for i in range(0, len(scenes), DEFAULT_BATCH)]
         assert sum(len(b) for b in batches) == 100
         assert all(len(b) <= DEFAULT_BATCH for b in batches)
+
+
+class TestBookendCaptions:
+    """An intro card already carries its own title; a caption drawn over it
+    reads as a mistake. The flag must win even when captions are on."""
+
+    @staticmethod
+    def scene(**patch):
+        base = {
+            "index": 0,
+            "type": "image",
+            "visual": "/tmp/src0",
+            "audio": None,
+            "seconds": 4.0,
+            "caption": "Welcome",
+        }
+        base.update(patch)
+        return base
+
+    def test_no_caption_flag_suppresses_drawtext(self):
+        chains = _scene_chain(self.scene(no_caption=True), 0, 1920, 1080, 30, 4.0,
+                              "classic", True, None, "/tmp")
+        assert "drawtext" not in ";".join(chains)
+
+    def test_an_ordinary_scene_still_draws_one(self):
+        chains = _scene_chain(self.scene(), 0, 1920, 1080, 30, 4.0,
+                              "classic", True, None, "/tmp")
+        assert "drawtext" in ";".join(chains)
+
+    def test_the_flag_does_not_disturb_the_rest_of_the_chain(self):
+        chains = _scene_chain(self.scene(no_caption=True), 2, 1920, 1080, 30, 4.0,
+                              "classic", True, None, "/tmp")
+        assert chains[-1].endswith("[v2]")
+        assert "format=yuv420p" in chains[-1]

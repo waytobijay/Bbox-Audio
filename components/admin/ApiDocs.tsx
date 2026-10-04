@@ -102,6 +102,8 @@ export function ApiDocs({ appUrl }: { appUrl: string }) {
           path="/api/v1/audio/speech"
           blurb="OpenAI-compatible, synchronous, 600 characters max."
         />
+        <Endpoint method="POST" path="/api/v1/video" blurb="Scenes → a rendered MP4. Returns a job id." />
+        <Endpoint method="POST" path="/api/v1/uploads" blurb="Somewhere to PUT an image or clip you host yourself." />
         <p className="mt-3">
           Everything except <code className="font-mono text-[12px]">/audio/speech</code> is
           asynchronous. That isn&apos;t a style choice: a Vercel function is capped at 60 seconds,
@@ -253,6 +255,77 @@ export function ApiDocs({ appUrl }: { appUrl: string }) {
           inside one request. <code className="font-mono text-[12px]">voice</code> takes a
           VoiceForge voice id; an unknown name falls back to your default voice, so clients sending{" "}
           <code className="font-mono text-[12px]">alloy</code> still work.
+        </p>
+      </Section>
+
+      <Section
+        title="Uploading your own images and clips"
+        description="For anything not already on a public URL — generated images, branded cards."
+      >
+        <p>
+          The file never passes through this API. You ask for a target, PUT the bytes straight to
+          storage, then use the returned <code className="font-mono text-[12px]">public_url</code>{" "}
+          as a scene. That is not a style choice: a request body over 4.5 MB is rejected by the
+          platform before any of our code runs.
+        </p>
+        <Snippet
+          label="1. Ask for somewhere to put it"
+          code={`curl -X POST ${base}/api/v1/uploads \
+  -H "Authorization: Bearer $VOICEFORGE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"scene-01.png","content_type":"image/png","bytes":612345}'`}
+        />
+        <Snippet
+          label="Response (201)"
+          code={`{
+  "upload_id": "8f1c…",
+  "upload_url": "https://blob.vercel-storage.com/uploads/…/8f1c-scene-01.png",
+  "method": "PUT",
+  "headers": { "authorization": "Bearer vercel_blob_client_…", "content-type": "image/png" },
+  "public_url": "https://….public.blob.vercel-storage.com/uploads/…/8f1c-scene-01.png",
+  "expires_at": "2026-10-12T11:00:00.000Z"
+}`}
+        />
+        <Snippet
+          label="2. PUT the file, sending exactly those headers"
+          code={`curl -X PUT "$UPLOAD_URL" \
+  -H "authorization: $AUTH" -H "content-type: image/png" \
+  --data-binary @scene-01.png`}
+        />
+        <p className="mt-3">
+          The target is locked to that one path, that content type, that size and 15 minutes. Send
+          a different type, a bigger file, or arrive late and storage refuses it.
+        </p>
+        <p className="mt-3">
+          <code className="font-mono text-[12px]">purpose</code> decides how long it lives:{" "}
+          <code className="font-mono text-[12px]">scene</code> (the default) is deleted after 7
+          days, <code className="font-mono text-[12px]">brand</code> is kept and reports{" "}
+          <code className="font-mono text-[12px]">expires_at: null</code>.
+        </p>
+        <Snippet
+          label="Optional — confirm it landed before rendering"
+          code={`curl -X POST ${base}/api/v1/uploads/8f1c…/complete \
+  -H "Authorization: Bearer $VOICEFORGE_KEY"
+# -> { "public_url": "https://…", "bytes": 612345 }`}
+        />
+      </Section>
+
+      <Section
+        title="Intro and outro"
+        description="Optional bookends on a video render."
+      >
+        <Snippet
+          code={`{
+  "intro": { "type": "clip", "url": "https://…/intro.mp4" },
+  "scenes": [ … ],
+  "outro": { "type": "image", "url": "https://…/endcard.png", "seconds": 6 }
+}`}
+        />
+        <p className="mt-3">
+          Rendered before the first scene and after the last, with the same transition. Length
+          comes from <code className="font-mono text-[12px]">audio_url</code> if given, else{" "}
+          <code className="font-mono text-[12px]">seconds</code>, else the clip&apos;s own length,
+          else 4 seconds. Captions are never drawn on them — a bookend carries its own title.
         </p>
       </Section>
 

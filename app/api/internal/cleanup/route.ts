@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { purgeExpiredJobs } from "@/lib/server/jobs";
+import { purgeExpiredUploads } from "@/lib/server/uploads";
 import { getSettings, isRedisConfigured } from "@/lib/server/redis";
 
 export const runtime = "nodejs";
@@ -32,5 +33,7 @@ export async function GET(req: Request) {
 
   const { retentionDays } = await getSettings();
   const deleted = await purgeExpiredJobs();
-  return NextResponse.json({ ok: true, deleted, retentionDays });
+  // Scene uploads expire on their own schedule; brand ones never do.
+  const uploads = await purgeExpiredUploads();
+  return NextResponse.json({ ok: true, deleted, uploads, retentionDays });
 }

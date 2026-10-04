@@ -31,8 +31,18 @@ const sceneSchema = z.object({
   seconds: z.number().min(0.5).max(600).optional(),
 });
 
+/** Bookends. Same shape as a scene, but never captioned. */
+const bookendSchema = z.object({
+  type: z.enum(["image", "clip"]).default("clip"),
+  url: z.string().url().max(2000),
+  audio_url: z.string().url().max(2000).optional(),
+  seconds: z.number().min(0.5).max(120).optional(),
+});
+
 const schema = z.object({
   scenes: z.array(sceneSchema).min(1).max(MAX_SCENES),
+  intro: bookendSchema.optional(),
+  outro: bookendSchema.optional(),
   /** 16:9 by default — this endpoint is for long-form. */
   width: z.number().int().min(256).max(3840).default(1920),
   height: z.number().int().min(256).max(2160).default(1080),
@@ -74,6 +84,12 @@ export async function POST(req: Request) {
           caption: s.caption,
           seconds: s.seconds,
         })),
+        intro: body.intro
+          ? { type: body.intro.type, url: body.intro.url, audioUrl: body.intro.audio_url, seconds: body.intro.seconds }
+          : undefined,
+        outro: body.outro
+          ? { type: body.outro.type, url: body.outro.url, audioUrl: body.outro.audio_url, seconds: body.outro.seconds }
+          : undefined,
         width: body.width,
         height: body.height,
         fps: body.fps,

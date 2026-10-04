@@ -235,7 +235,7 @@ def _scene_chain(
     out = [chain]
     cur = f"{label}p"
 
-    if captions and scene["caption"]:
+    if captions and scene["caption"] and not scene.get("no_caption"):
         draws = []
         for k, line in enumerate(_wrap(scene["caption"])):
             tf = _textfile(work, f"cap{scene['index']}_{k}.txt", line)
@@ -466,6 +466,28 @@ def _run_render(req: Dict[str, Any]) -> None:
             scenes = _prepare(req.get("scenes") or [], work, pad, min_s)
             if not scenes:
                 raise ValueError("no scenes")
+
+            # Bookends are ordinary scenes with captions suppressed: they
+            # already carry their own titles, and a caption drawn over a
+            # designed intro card looks like a mistake. Default 4s when the
+            # caller gives neither audio nor a length.
+            intro = req.get("intro")
+            outro = req.get("outro")
+            if intro:
+                prepared = _prepare([{**intro, "caption": ""}], work, pad, float(intro.get("seconds") or 4.0))
+                for s_ in prepared:
+                    s_["no_caption"] = True
+                scenes = prepared + scenes
+            if outro:
+                prepared = _prepare([{**outro, "caption": ""}], work, pad, float(outro.get("seconds") or 4.0))
+                for s_ in prepared:
+                    s_["no_caption"] = True
+                scenes = scenes + prepared
+
+            # _prepare numbers scenes from zero per call, so renumber once the
+            # bookends are in place — the index drives the motion variation.
+            for n_, s_ in enumerate(scenes):
+                s_["index"] = n_
 
             if req.get("banner_url"):
                 cfg["banner"] = _download(str(req["banner_url"]), os.path.join(work, "banner.png"))

@@ -13,7 +13,7 @@ import { del, put, type PutBlobResult } from "@vercel/blob";
  * (e.g. VOICEFORGE_BLOB_READ_WRITE_TOKEN). Find whichever one exists and pass
  * it explicitly, so naming never becomes something the user has to fix.
  */
-function blobToken(): string | undefined {
+export function blobToken(): string | undefined {
   if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
   const key = Object.keys(process.env).find((k) => k.endsWith("BLOB_READ_WRITE_TOKEN"));
   return key ? process.env[key] : undefined;

@@ -53,6 +53,34 @@ function limiterFor(perMinute: number): Ratelimit | null {
 }
 
 /**
+ * A separate, slower bucket for creating uploads.
+ *
+ * A five-minute video asks for ~30 of these in a burst, which would trip the
+ * per-minute request limit even though the work involved is trivial — we only
+ * mint a token. Counting them per hour fits how they actually arrive.
+ */
+export async function checkUploadLimit(keyId: string): Promise<NextResponse | null> {
+  const redis = getRedis();
+  if (!redis) return null;
+  const limiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(300, "1 h"),
+    prefix: "vf:rl:upload",
+    analytics: false,
+  });
+  const { success, reset } = await limiter.limit(keyId);
+  if (success) return null;
+  const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
+  const response = apiError(
+    `Upload limit exceeded: 300 per hour. Retry in ${retryAfter}s.`,
+    429,
+    "rate_limit_exceeded"
+  );
+  response.headers.set("Retry-After", String(retryAfter));
+  return response;
+}
+
+/**
  * Quota check, split out so endpoints can authenticate BEFORE parsing a body.
  * Returns null when the key is within quota, or a response when it isn't.
  */

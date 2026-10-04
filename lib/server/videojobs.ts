@@ -22,6 +22,8 @@ export const RENDER_STALE_AFTER_MS = 3 * 60 * 60 * 1000;
 
 export interface VideoJobInput {
   scenes: VideoScene[];
+  intro?: VideoScene;
+  outro?: VideoScene;
   width: number;
   height: number;
   fps: number;
@@ -115,8 +117,13 @@ export async function createAndDispatchRender(
 
   const assets = await chooseAssets(input, estimate);
 
+  const bookend = (s?: VideoScene) =>
+    s ? { type: s.type, url: s.url, audio_url: s.audioUrl, seconds: s.seconds } : undefined;
+
   const body = {
     job_id: id,
+    intro: bookend(input.intro),
+    outro: bookend(input.outro),
     scenes: input.scenes.map((s) => ({
       type: s.type,
       url: s.url,
