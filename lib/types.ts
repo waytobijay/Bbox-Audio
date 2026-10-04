@@ -221,3 +221,38 @@ export interface LibraryVoice {
 export interface LibraryVoiceView extends LibraryVoice {
   isDefault: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Asset library (long-form video)
+// ---------------------------------------------------------------------------
+
+/**
+ * What a render can draw on. Kinds are fixed because the renderer treats each
+ * differently — music is ducked under the voice, motion is composited with
+ * transparency, a banner is overlaid in a corner.
+ */
+export const ASSET_KINDS = [
+  "music",
+  "sfx",
+  "motion",
+  "banner",
+  "intro",
+  "outro",
+  "clip",
+] as const;
+
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
+export interface Asset {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  /** Free-form sub-category, e.g. "whoosh" for an sfx, "upbeat" for music. */
+  tag?: string;
+  /** Public Blob URL — the backend downloads from here. */
+  url: string;
+  mime: string;
+  sizeBytes: number;
+  durationSec?: number;
+  createdAt: number;
+}

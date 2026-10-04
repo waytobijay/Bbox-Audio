@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import {
   IconArrowRight,
   IconHome,
+  IconImage,
   IconKey,
   IconLink,
   IconMic,
@@ -33,6 +34,7 @@ const PLATFORM: NavItem[] = [
   { href: "/admin", label: "Dashboard", Icon: IconHome },
   { href: "/admin/backends", label: "Backends", Icon: IconLink },
   { href: "/admin/voices", label: "Voices", Icon: IconMic },
+  { href: "/admin/assets", label: "Assets", Icon: IconImage },
 ];
 
 const DEVELOPER: NavItem[] = [
