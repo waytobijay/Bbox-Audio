@@ -8,7 +8,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { backendHeaders, getBackend } from "@/lib/server/backends";
+import { backendHeaders, getBackend, recordHealthFacts } from "@/lib/server/backends";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -47,6 +47,12 @@ export async function POST(req: NextRequest) {
       );
     }
     health = await res.json();
+    // Keep the card honest: refresh GPU, models and version from what it just
+    // told us, rather than discarding it.
+    await recordHealthFacts(
+      body.provider,
+      health as { gpu?: string; models?: string[]; version?: string; voices_cached?: string[] }
+    );
   } catch (e) {
     const timedOut = e instanceof Error && e.name === "TimeoutError";
     return NextResponse.json(

@@ -191,6 +191,40 @@ export function backendHeaders(): Record<string, string> {
   };
 }
 
+/**
+ * Fold what a /health response told us back into the registry row.
+ *
+ * A self-registering notebook reports its GPU and models on every heartbeat,
+ * but a backend added by URL has nobody doing that — and if it happened to be
+ * asleep when it was added, its row stays blank and the studio greys out the
+ * model picker. Any successful health call now refreshes those facts, so the
+ * row corrects itself the first time the backend is actually reachable.
+ */
+export async function recordHealthFacts(
+  provider: BackendProvider,
+  health: { gpu?: string; models?: string[]; version?: string; voices_cached?: string[] }
+): Promise<void> {
+  const existing = await kvGet<RegisteredBackend>(KEY(provider));
+  if (!existing) return;
+
+  const next: RegisteredBackend = {
+    ...existing,
+    gpu: health.gpu ?? existing.gpu,
+    models: health.models?.length ? health.models : existing.models,
+    version: health.version ?? existing.version,
+    voicesCached: health.voices_cached ?? existing.voicesCached,
+  };
+
+  const unchanged =
+    next.gpu === existing.gpu &&
+    next.version === existing.version &&
+    next.models.join() === existing.models.join() &&
+    (next.voicesCached ?? []).join() === (existing.voicesCached ?? []).join();
+  if (unchanged) return;
+
+  await kvSet(KEY(provider), next);
+}
+
 // --- usage counters ------------------------------------------------------
 
 export async function recordJobUsage(

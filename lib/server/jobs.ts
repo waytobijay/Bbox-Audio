@@ -18,7 +18,7 @@
  */
 
 import type { BackendProvider } from "@/lib/types";
-import { backendHeaders, resolveBackend } from "./backends";
+import { backendHeaders, recordHealthFacts, resolveBackend } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
 import { kvDel, kvGet, kvSet } from "./redis";
@@ -157,7 +157,11 @@ export class JobError extends Error {
  * /health lists what's already cached, so a warm backend costs one cheap GET
  * rather than re-uploading the clip on every job.
  */
-async function ensureVoiceCached(backendUrl: string, voiceId: string): Promise<void> {
+async function ensureVoiceCached(
+  backendUrl: string,
+  voiceId: string,
+  provider?: BackendProvider
+): Promise<void> {
   const voice = await getVoice(voiceId);
   if (!voice) {
     throw new JobError(`No voice with id "${voiceId}".`, 404, "unknown_voice");
@@ -170,7 +174,14 @@ async function ensureVoiceCached(backendUrl: string, voiceId: string): Promise<v
       signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) {
-      cached = ((await res.json()) as { voices_cached?: string[] }).voices_cached ?? [];
+      const health = (await res.json()) as {
+        gpu?: string;
+        models?: string[];
+        version?: string;
+        voices_cached?: string[];
+      };
+      cached = health.voices_cached ?? [];
+      if (provider) await recordHealthFacts(provider, health);
     }
   } catch {
     // Couldn't ask — fall through and push the voice anyway. Caching twice is
@@ -212,7 +223,7 @@ export async function createAndDispatchJob(
 
   // Before anything is written down: a job for a voice the GPU doesn't have
   // would fail in the worker with no way to recover.
-  await ensureVoiceCached(backend.url, input.voiceId);
+  await ensureVoiceCached(backend.url, input.voiceId, backend.provider);
 
   const id = crypto.randomUUID();
   const now = Date.now();
