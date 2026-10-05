@@ -137,6 +137,11 @@ def _motion(kind: str, index: int, frames: int) -> tuple[str, str, str]:
     frames stay pixel-identical (see _scene_chain)."""
     cx, cy = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
     f = max(frames, 1)
+    if kind == "none":
+        # _scene_chain skips zoompan entirely for a still, so this is belt and
+        # braces — but a helper that returned a zoom for "none" would be a
+        # trap for whoever calls it next.
+        return "1", cx, cy
     if kind == "zoom_in":
         # Centred, deliberately gentle — a slide that creeps rather than lunges.
         return f"1+0.08*on/{f}", cx, cy
