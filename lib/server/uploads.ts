@@ -128,7 +128,11 @@ export async function blobBaseUrl(): Promise<string> {
       token,
       addRandomSuffix: false,
       contentType: "text/plain",
-    });
+      // The delete below is best-effort. If it ever fails and the cached base
+      // url is later lost, a second probe would hit its own leftover and
+      // throw "already exists" — breaking every upload, from a marker file.
+      allowOverwrite: true,
+    } as Parameters<typeof put>[2]);
     sample = probe.url;
     await del(probe.url, { token }).catch(() => {});
   }
@@ -188,7 +192,18 @@ export async function createUpload(input: CreateUploadInput): Promise<CreatedUpl
     maximumSizeInBytes: input.bytes,
     validUntil: Date.now() + UPLOAD_WINDOW_MS,
     addRandomSuffix: false,
-  });
+    // The store refuses a PUT over an existing pathname unless the *token*
+    // permits it — a request header alone is ignored, or a client could
+    // escalate past what it was granted. Safe here because the pathname
+    // contains a UUID we generated, so the only thing a repeat PUT can
+    // overwrite is the caller's own half-finished upload. Without this a
+    // retried PUT fails with "This blob already exists", and an HTTP client
+    // that retries a timeout has no way to recover.
+    //
+    // Cast: @vercel/blob 0.27 predates the option, but the payload it signs
+    // is a plain pass-through of these arguments, and the store reads it.
+    allowOverwrite: true,
+  } as Parameters<typeof generateClientTokenFromReadWriteToken>[0]);
 
   const base = await blobBaseUrl();
   const row: UploadRow = {
@@ -217,6 +232,8 @@ export async function createUpload(input: CreateUploadInput): Promise<CreatedUpl
       "content-type": input.contentType,
       "x-content-type": input.contentType,
       "x-add-random-suffix": "0",
+      // Matches the token above; the store wants both.
+      "x-allow-overwrite": "1",
     },
     public_url: row.publicUrl,
     expires_at: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
