@@ -7,7 +7,7 @@
  * the job records a URL that n8n downloads directly.
  */
 
-import type { Asset, VideoScene } from "@/lib/types";
+import type { Asset, VideoChapterSpan, VideoScene } from "@/lib/types";
 import { backendHeaders, resolveRenderBackend } from "./backends";
 import { pickAssets } from "./assets";
 import { JobError, callbackToken, saveJob, type Job } from "./jobs";
@@ -96,6 +96,34 @@ export async function resolveBookend(
   return { type: spec.type, url: spec.url, audio_url: spec.audioUrl, seconds: spec.seconds };
 }
 
+/**
+ * A frame's window has to fit inside the video.
+ *
+ * zod cannot check this — it needs `width` and `height` from the same
+ * request — so it happens here, and it throws a JobError so the caller gets
+ * a 400 naming the scene rather than a render that fails ten minutes in.
+ */
+export function assertFramesFit(scenes: VideoScene[], width: number, height: number): void {
+  scenes.forEach((s, i) => {
+    if (!s.frame) return;
+    const { x, y, w, h } = s.frame.rect;
+    if (w <= 0 || h <= 0) {
+      throw new JobError(
+        `scene ${i}: frame.rect w and h must be positive, got ${w}x${h}`,
+        400,
+        "bad_frame"
+      );
+    }
+    if (x + w > width || y + h > height) {
+      throw new JobError(
+        `scene ${i}: frame.rect ${x},${y} ${w}x${h} does not fit inside ${width}x${height}`,
+        400,
+        "bad_frame"
+      );
+    }
+  });
+}
+
 /** Best-effort guess so sfx can be placed and the client sees an estimate. */
 export function estimateSeconds(scenes: VideoScene[], minSceneSeconds: number): number {
   return scenes.reduce((n, s) => n + (s.seconds ?? minSceneSeconds), 0);
@@ -105,6 +133,8 @@ export async function createAndDispatchRender(
   input: VideoJobInput,
   appUrl: string
 ): Promise<Job> {
+  assertFramesFit(input.scenes, input.width, input.height);
+
   const target = await resolveRenderBackend();
   if (!target) {
     throw new JobError(
@@ -156,6 +186,10 @@ export async function createAndDispatchRender(
       caption: s.caption,
       seconds: s.seconds,
       motion: s.motion,
+      frame: s.frame
+        ? { overlay_url: s.frame.overlayUrl, rect: s.frame.rect }
+        : undefined,
+      poster_url: s.posterUrl,
     })),
     width: input.width,
     height: input.height,
@@ -217,6 +251,7 @@ export async function completeRender(
     gen_seconds?: number;
     bytes?: number;
     scenes?: number;
+    timeline?: VideoChapterSpan[];
     error?: string;
   }
 ): Promise<Job> {
@@ -232,6 +267,7 @@ export async function completeRender(
     duration: result.duration,
     genSeconds: result.gen_seconds,
     videoBytes: result.bytes,
+    timeline: result.timeline,
     videoUrl: `${job.backendUrl}/render/${job.id}/video?token=${token}`,
   });
 }

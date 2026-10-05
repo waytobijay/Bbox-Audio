@@ -73,3 +73,60 @@ describe("resolveBookend", () => {
     expect(await resolveBookend(undefined, "intro")).toBeUndefined();
   });
 });
+
+/**
+ * Frame windows. zod cannot check these — the limit is the request's own
+ * width and height — so they are checked before a backend is claimed, and a
+ * bad rect comes back as a 400 naming the scene rather than as a render that
+ * dies ten minutes in.
+ */
+describe("assertFramesFit", () => {
+  const framed = (rect: { x: number; y: number; w: number; h: number }): VideoScene => ({
+    type: "image",
+    url: "https://cdn.test/1.png",
+    frame: { overlayUrl: "https://cdn.test/frame.png", rect },
+  });
+
+  it("accepts a window inside the canvas", async () => {
+    const { assertFramesFit } = await import("../server/videojobs");
+    expect(() =>
+      assertFramesFit([framed({ x: 160, y: 150, w: 1600, h: 760 })], 1920, 1080)
+    ).not.toThrow();
+  });
+
+  it("accepts a window flush with the edges", async () => {
+    const { assertFramesFit } = await import("../server/videojobs");
+    expect(() =>
+      assertFramesFit([framed({ x: 0, y: 0, w: 1920, h: 1080 })], 1920, 1080)
+    ).not.toThrow();
+  });
+
+  it("rejects one that hangs off the right", async () => {
+    const { assertFramesFit } = await import("../server/videojobs");
+    expect(() =>
+      assertFramesFit([framed({ x: 1000, y: 0, w: 1600, h: 760 })], 1920, 1080)
+    ).toThrow(/does not fit/);
+  });
+
+  it("rejects an empty window", async () => {
+    const { assertFramesFit } = await import("../server/videojobs");
+    expect(() =>
+      assertFramesFit([framed({ x: 0, y: 0, w: 0, h: 760 })], 1920, 1080)
+    ).toThrow(/must be positive/);
+  });
+
+  it("names the scene that is wrong", async () => {
+    const { assertFramesFit } = await import("../server/videojobs");
+    const ok = framed({ x: 0, y: 0, w: 100, h: 100 });
+    expect(() =>
+      assertFramesFit([ok, ok, framed({ x: 0, y: 0, w: 9999, h: 100 })], 1920, 1080)
+    ).toThrow(/scene 2/);
+  });
+
+  it("ignores scenes with no frame at all", async () => {
+    const { assertFramesFit } = await import("../server/videojobs");
+    expect(() =>
+      assertFramesFit([{ type: "image", url: "https://cdn.test/1.png" }], 1920, 1080)
+    ).not.toThrow();
+  });
+});

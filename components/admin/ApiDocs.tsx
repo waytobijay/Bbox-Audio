@@ -346,6 +346,140 @@ export function ApiDocs({ appUrl }: { appUrl: string }) {
       </Section>
 
       <Section
+        title="Branded frames"
+        description="Render the picture inside a window of your own overlay PNG."
+      >
+        <p className="mb-3">
+          Give any scene a <code className="font-mono text-[12px]">frame</code> and the picture
+          is scaled to cover <code className="font-mono text-[12px]">rect</code>, centre-cropped
+          to it, placed at <code className="font-mono text-[12px]">rect.x, rect.y</code>, and
+          your overlay laid over the whole canvas with its alpha respected. The motion runs{" "}
+          <strong>inside the window only</strong> — the frame itself never moves. Captions and
+          the banner are drawn on top of the frame.
+        </p>
+        <Snippet
+          code={`{
+  "width": 1920, "height": 1080,
+  "scenes": [
+    {
+      "type": "image",
+      "url": "https://…/photo.jpg",
+      "audio_url": "https://…/line1.mp3",
+      "motion": "zoom_in",
+      "frame": {
+        "overlay_url": "https://…/brand-1920x1080.png",
+        "rect": { "x": 160, "y": 150, "w": 1600, "h": 760 }
+      }
+    },
+    {
+      "type": "clip",
+      "url": "https://…/b-roll.mp4",
+      "poster_url": "https://…/b-roll-still.jpg",
+      "audio_url": "https://…/line2.mp3",
+      "frame": {
+        "overlay_url": "https://…/brand-1920x1080.png",
+        "rect": { "x": 160, "y": 150, "w": 1600, "h": 760 }
+      }
+    }
+  ]
+}`}
+        />
+        <p className="mt-3">
+          The overlay should be a PNG the full size of the video with a transparent window
+          where <code className="font-mono text-[12px]">rect</code> is. It is fetched once per
+          job however many scenes share it. A{" "}
+          <code className="font-mono text-[12px]">rect</code> that does not fit inside{" "}
+          <code className="font-mono text-[12px]">width</code> ×{" "}
+          <code className="font-mono text-[12px]">height</code>, or has a zero or negative
+          side, is a 400 naming the scene. Omit{" "}
+          <code className="font-mono text-[12px]">frame</code> and the scene renders exactly as
+          it did before.
+        </p>
+      </Section>
+
+      <Section
+        title="Clips"
+        description="How a video clip is fitted to its narration."
+      >
+        <ul className="list-disc space-y-1 pl-5">
+          <li>The clip&apos;s own audio is always dropped — you hear narration and music only.</li>
+          <li>Scaled to cover and centre-cropped, to the frame&apos;s window when there is one.</li>
+          <li>Longer than the narration: trimmed.</li>
+          <li>
+            Slightly shorter: slowed down, never below 0.8× speed, so the scene has no seam at
+            all.
+          </li>
+          <li>
+            Much shorter (more than 1.25× the gap): looped. The last frame is never frozen.
+          </li>
+          <li>
+            Fails to download: retried once, then{" "}
+            <code className="font-mono text-[12px]">poster_url</code> is used as a still if you
+            gave one. Without a poster the job fails rather than silently dropping a scene and
+            desyncing every caption after it.
+          </li>
+        </ul>
+      </Section>
+
+      <Section
+        title="Captions and banner"
+        description="Exactly what each flag draws."
+      >
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <code className="font-mono text-[12px]">captions: true</code> burns each scene&apos;s{" "}
+            <code className="font-mono text-[12px]">caption</code> in, wrapped to at most two
+            lines, white on a 50% black box, centred at 82% of the frame height. A scene with
+            no caption gets nothing; intro and outro never get one.
+          </li>
+          <li>
+            <code className="font-mono text-[12px]">captions: false</code> — no burned-in text
+            anywhere, whatever the scenes carry.
+          </li>
+          <li>
+            <code className="font-mono text-[12px]">banner: true</code> draws one image from
+            your <strong>banner</strong> asset kind in the top-right corner, scaled to 7% of
+            the video height, inset 2.5% from the right and 3.5% from the top, on every scene
+            including the bookends. An empty banner library draws nothing.
+          </li>
+          <li>
+            <code className="font-mono text-[12px]">banner: false</code> — nothing is drawn and
+            no banner is even fetched.
+          </li>
+        </ul>
+      </Section>
+
+      <Section
+        title="Timeline (YouTube chapters)"
+        description="Where every scene lands in the finished MP4."
+      >
+        <p className="mb-3">
+          A finished video job carries a{" "}
+          <code className="font-mono text-[12px]">timeline</code>: real start and end seconds
+          for every scene, bookends included, in render order. Crossfades do not shift it —
+          each scene is given an extra tail exactly as long as the transition that eats it — so
+          the last <code className="font-mono text-[12px]">end</code> matches the reported{" "}
+          <code className="font-mono text-[12px]">duration</code>.
+        </p>
+        <Snippet
+          code={`GET /api/v1/jobs/{job_id}
+{
+  "status": "done",
+  "duration": 273.4,
+  "video_url": "https://…",
+  "timeline": [
+    { "index": 0, "start": 0.0,   "end": 7.42 },
+    { "index": 1, "start": 7.42,  "end": 15.1 }
+  ]
+}`}
+        />
+        <p className="mt-3">
+          Index 0 is the intro when one was rendered, so map your chapter titles against the
+          same list you sent rather than assuming scene 0 is index 0.
+        </p>
+      </Section>
+
+      <Section
         title="Per-scene motion"
         description="Override the video-wide pan and zoom on individual scenes."
       >

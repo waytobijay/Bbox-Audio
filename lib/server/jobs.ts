@@ -17,7 +17,7 @@
  * dropped callback therefore costs a delay, not the render.
  */
 
-import type { BackendProvider } from "@/lib/types";
+import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
 import { backendHeaders, recordHealthFacts, resolveBackend } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
@@ -73,6 +73,8 @@ export interface Job {
   /** 0-100 while rendering, so a long job isn't a black box. */
   progress?: number;
   stage?: string;
+  /** Real start/end seconds of every scene in the finished MP4. */
+  timeline?: VideoChapterSpan[];
 }
 
 export async function getJob(id: string): Promise<Job | null> {

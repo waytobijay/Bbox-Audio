@@ -47,6 +47,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     ...(job.genSeconds !== undefined ? { gen_seconds: job.genSeconds } : {}),
     ...(job.audioUrl ? { audio_url: job.audioUrl } : {}),
     ...(job.videoUrl ? { video_url: job.videoUrl, bytes: job.videoBytes } : {}),
+    ...(job.timeline ? { timeline: job.timeline } : {}),
     ...(job.progress !== undefined ? { progress: job.progress, stage: job.stage } : {}),
     ...(job.mode === "items" && job.items
       ? {

@@ -291,3 +291,229 @@ class TestClipHandling:
 
         src = inspect.getsource(_render_batch)
         assert "-stream_loop" in src
+
+
+# ---------------------------------------------------------------------------
+# Framed scenes: a branded 1920x1080 PNG with a window cut out of it, and the
+# picture moving inside that window only.
+# ---------------------------------------------------------------------------
+
+from backend.voiceforge_render import (  # noqa: E402
+    _clip_plan,
+    _frame_of,
+    _timeline,
+)
+
+FRAME = {"overlay_url": "https://cdn.test/frame.png",
+         "rect": {"x": 160, "y": 150, "w": 1600, "h": 760}}
+
+
+def framed_scene(**patch):
+    base = {
+        "index": 0,
+        "type": "image",
+        "visual": "/tmp/src0",
+        "audio": None,
+        "seconds": 5.0,
+        "caption": "",
+        "frame": {"overlay_url": FRAME["overlay_url"],
+                  "x": 160, "y": 150, "w": 1600, "h": 760,
+                  "overlay": "/tmp/overlay0.png"},
+    }
+    base.update(patch)
+    return base
+
+
+class TestFrameValidation:
+    def test_absent_frame_is_simply_none(self):
+        assert _frame_of({}, 1920, 1080) is None
+
+    def test_a_good_rect_passes_through(self):
+        got = _frame_of({"frame": FRAME}, 1920, 1080)
+        assert got == {"overlay_url": "https://cdn.test/frame.png",
+                       "x": 160, "y": 150, "w": 1600, "h": 760}
+
+    def test_zero_sized_window_is_rejected(self):
+        for bad in ({"x": 0, "y": 0, "w": 0, "h": 100},
+                    {"x": 0, "y": 0, "w": 100, "h": -5}):
+            try:
+                _frame_of({"frame": {"overlay_url": "u", "rect": bad}}, 1920, 1080)
+            except ValueError as e:
+                assert "positive" in str(e)
+            else:
+                raise AssertionError("accepted " + str(bad))
+
+    def test_a_window_hanging_off_the_canvas_is_rejected(self):
+        try:
+            _frame_of({"frame": {"overlay_url": "u",
+                                 "rect": {"x": 1000, "y": 0, "w": 1600, "h": 760}}},
+                      1920, 1080)
+        except ValueError as e:
+            assert "does not fit" in str(e)
+        else:
+            raise AssertionError("accepted a rect wider than the canvas")
+
+    def test_the_overlay_url_is_required(self):
+        try:
+            _frame_of({"frame": {"rect": {"x": 0, "y": 0, "w": 10, "h": 10}}},
+                      1920, 1080)
+        except ValueError as e:
+            assert "overlay_url" in str(e)
+        else:
+            raise AssertionError("accepted a frame with no overlay")
+
+
+class TestFramedSceneChain:
+    def test_the_picture_moves_but_the_frame_does_not(self):
+        chains = _scene_chain(framed_scene(), 0, 1920, 1080, 30, 5.0,
+                              "classic", False, None, "/tmp", 4)
+        joined = ";".join(chains)
+        # The pan renders at the window's size, not the canvas's...
+        assert "s=1600x760" in joined
+        # ...is dropped at the window's corner...
+        assert "overlay=160:150" in joined
+        # ...and the frame PNG goes over the whole canvas, unmoving.
+        assert "[4:v]scale=1920:1080" in joined
+        assert "overlay=0:0" in joined
+
+    def test_the_canvas_is_the_full_video_size(self):
+        joined = ";".join(_scene_chain(framed_scene(), 0, 1920, 1080, 30, 5.0,
+                                       "classic", False, None, "/tmp", 4))
+        assert "color=c=black:s=1920x1080" in joined
+
+    def test_a_framed_clip_is_cropped_to_the_window(self):
+        scene = framed_scene(type="clip", source_seconds=30.0)
+        joined = ";".join(_scene_chain(scene, 0, 1920, 1080, 30, 5.0,
+                                       "classic", False, None, "/tmp", 4))
+        assert "crop=1600:760" in joined
+        assert "zoompan" not in joined
+        assert "overlay=160:150" in joined
+
+    def test_an_unframed_scene_is_untouched(self):
+        # The whole promise of the feature: no frame, no change.
+        before = _scene_chain(
+            {"index": 0, "type": "image", "visual": "/tmp/a", "audio": None,
+             "seconds": 5.0, "caption": ""},
+            0, 1920, 1080, 30, 5.0, "classic", False, None, "/tmp")
+        joined = ";".join(before)
+        assert "color=c=black" not in joined
+        assert "s=1920x1080" in joined
+
+    def test_the_chain_still_ends_normalised(self):
+        chains = _scene_chain(framed_scene(caption="Hi"), 1, 1920, 1080, 30, 5.0,
+                              "classic", True, 9, "/tmp", 4)
+        assert chains[-1].endswith("[v1]")
+        assert "format=yuv420p" in chains[-1]
+
+    def test_captions_are_drawn_over_the_frame_not_under_it(self):
+        chains = _scene_chain(framed_scene(caption="Hello"), 0, 1920, 1080, 30, 5.0,
+                              "classic", True, None, "/tmp", 4)
+        joined = ";".join(chains)
+        assert joined.index("overlay=0:0") < joined.index("drawtext")
+
+
+class TestNoOverlaysAtAll:
+    """captions:false + banner:false must leave the picture completely bare."""
+
+    def test_nothing_is_drawn_or_overlaid(self):
+        scene = {"index": 0, "type": "image", "visual": "/tmp/a", "audio": None,
+                 "seconds": 5.0, "caption": "Some caption text"}
+        joined = ";".join(_scene_chain(scene, 0, 1920, 1080, 30, 5.0,
+                                       "classic", False, None, "/tmp"))
+        assert "drawtext" not in joined
+        assert "overlay" not in joined
+
+
+class TestStaticSlidesLineUp:
+    """Two consecutive "none" scenes must produce identical geometry, or a
+    bullet list that reveals a line per slide visibly jitters."""
+
+    @staticmethod
+    def still(index):
+        return {"index": index, "type": "image", "visual": "/tmp/s",
+                "audio": None, "seconds": 4.0, "caption": "", "motion": "none"}
+
+    def test_the_two_chains_differ_only_by_their_slot(self):
+        a = ";".join(_scene_chain(self.still(0), 0, 1920, 1080, 30, 4.0,
+                                  "classic", False, None, "/tmp"))
+        b = ";".join(_scene_chain(self.still(1), 1, 1920, 1080, 30, 4.0,
+                                  "classic", False, None, "/tmp"))
+        assert a.replace("[v0", "[vN").replace("[0:v]", "[N:v]") == \
+            b.replace("[v1", "[vN").replace("[1:v]", "[N:v]")
+
+    def test_neither_is_resampled_by_a_zoom(self):
+        for i in (0, 1):
+            joined = ";".join(_scene_chain(self.still(i), i, 1920, 1080, 30, 4.0,
+                                           "classic", False, None, "/tmp"))
+            assert "zoompan" not in joined
+
+    def test_a_per_scene_none_beats_a_moving_default(self):
+        joined = ";".join(_scene_chain(self.still(0), 0, 1920, 1080, 30, 4.0,
+                                       "dynamic", False, None, "/tmp"))
+        assert "zoompan" not in joined
+
+
+class TestClipPlan:
+    @staticmethod
+    def clip(src):
+        return {"type": "clip", "source_seconds": src}
+
+    def test_a_long_enough_clip_is_just_trimmed(self):
+        assert _clip_plan(self.clip(30.0), 5.0) == ("trim", 1.0)
+
+    def test_a_slightly_short_clip_is_stretched(self):
+        plan, factor = _clip_plan(self.clip(10.0), 12.0)
+        assert plan == "slow"
+        assert abs(factor - 1.2) < 1e-9
+
+    def test_the_stretch_never_goes_below_point_eight_speed(self):
+        # 1/1.25 = 0.8x. Anything slower reads as broken playback.
+        plan, factor = _clip_plan(self.clip(10.0), 12.5)
+        assert plan == "slow" and factor <= 1.25
+
+    def test_a_much_shorter_clip_loops_instead(self):
+        assert _clip_plan(self.clip(4.0), 30.0) == ("loop", 1.0)
+
+    def test_an_image_is_never_slowed_or_looped(self):
+        assert _clip_plan({"type": "image", "source_seconds": 0.0}, 30.0) == ("trim", 1.0)
+
+    def test_an_unprobeable_clip_falls_back_to_trimming(self):
+        # Better a trim than a divide by something near zero.
+        assert _clip_plan(self.clip(0.0), 30.0) == ("trim", 1.0)
+
+    def test_a_stretched_clip_never_freezes_and_carries_no_audio(self):
+        scene = {"index": 0, "type": "clip", "visual": "/tmp/c", "audio": None,
+                 "seconds": 12.0, "caption": "", "source_seconds": 10.0}
+        joined = ";".join(_scene_chain(scene, 0, 1920, 1080, 30, 12.0,
+                                       "classic", False, None, "/tmp"))
+        assert "setpts=PTS*1.20000" in joined
+        assert "tpad" not in joined
+        # The clip's own audio is never referenced; only [n:v] is.
+        assert "[0:a]" not in joined
+
+
+class TestTimeline:
+    @staticmethod
+    def scenes(*lengths):
+        return [{"index": i, "seconds": s} for i, s in enumerate(lengths)]
+
+    def test_scenes_run_back_to_back(self):
+        assert _timeline(self.scenes(5.0, 7.0, 3.0)) == [
+            {"index": 0, "start": 0.0, "end": 5.0},
+            {"index": 1, "start": 5.0, "end": 12.0},
+            {"index": 2, "start": 12.0, "end": 15.0},
+        ]
+
+    def test_it_sums_to_the_length_of_the_film(self):
+        # Crossfades borrow a tail from each scene and give it straight back,
+        # so the total is simply the sum — the property n8n needs for chapters.
+        lengths = [4.3, 9.1, 2.75, 11.0, 6.4]
+        line = _timeline(self.scenes(*lengths))
+        assert abs(line[-1]["end"] - sum(lengths)) < 0.1
+
+    def test_it_is_empty_for_no_scenes_rather_than_failing(self):
+        assert _timeline([]) == []
+
+    def test_every_entry_keeps_its_own_index(self):
+        line = _timeline([{"index": 7, "seconds": 2.0}, {"index": 8, "seconds": 3.0}])
+        assert [e["index"] for e in line] == [7, 8]

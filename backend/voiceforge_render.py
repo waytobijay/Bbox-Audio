@@ -10,7 +10,7 @@ same file can run three ways:
 Contract
 --------
 POST   /render              -> 202, renders in a background worker
-GET    /render/{id}         -> {status, progress, duration, error}
+GET    /render/{id}         -> {status, progress, duration, timeline, error}
 GET    /render/{id}/video   -> the finished MP4
 DELETE /render/{id}         -> drop a collected render and its files
 
@@ -55,6 +55,13 @@ FONT = os.environ.get(
 
 MAX_DOWNLOAD = 200 * 1024 * 1024
 DOWNLOAD_TIMEOUT = 120
+# One retry, because a CDN hiccup on scene 60 of 90 should not throw away
+# twenty minutes of finished encoding.
+DOWNLOAD_ATTEMPTS = 2
+# A clip shorter than its narration is stretched rather than looped when the
+# stretch is this mild — 0.8x speed is slow motion you have to look for, and a
+# seamless scene beats a visible loop. Past it, looping is the lesser evil.
+MAX_SLOWDOWN = 1.25
 # Small enough that the filter graph stays sane, large enough that hard cuts
 # are rare. 8 scenes is roughly a minute of long-form narration.
 DEFAULT_BATCH = 8
@@ -79,7 +86,7 @@ def _extension_of(url: str) -> str:
     return f".{ext}" if 1 <= len(ext) <= 5 and ext.isalnum() else ""
 
 
-def _download(url: str, dest: str) -> str:
+def _download_once(url: str, dest: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": f"voiceforge-render/{RENDER_VERSION}"})
     with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as r, open(dest, "wb") as f:  # noqa: S310
         size = 0
@@ -89,6 +96,22 @@ def _download(url: str, dest: str) -> str:
                 raise ValueError(f"input too large: {url}")
             f.write(chunk)
     return dest
+
+
+def _download(url: str, dest: str, attempts: int = DOWNLOAD_ATTEMPTS) -> str:
+    """Fetch with a retry. "Too large" is not retried — it will not shrink."""
+    last: Optional[Exception] = None
+    for n in range(max(1, attempts)):
+        try:
+            return _download_once(url, dest)
+        except ValueError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if n + 1 < attempts:
+                print(f"[render] download failed ({e}), retrying: {url}", flush=True)
+                time.sleep(1.5 * (n + 1))
+    raise last if last else RuntimeError(f"download failed: {url}")
 
 
 def _probe_seconds(path: str) -> float:
@@ -157,6 +180,55 @@ def _motion(kind: str, index: int, frames: int) -> tuple[str, str, str]:
     return "1.10", f"(iw-iw/zoom)*(1-on/{f})", cy
 
 
+def _frame_of(scene: Dict[str, Any], width: int, height: int) -> Optional[Dict[str, Any]]:
+    """Validate a scene's `frame`, or None when it has none.
+
+    The window has to sit inside the canvas: an overlay PNG is cut for an
+    exact rectangle, and a rect that hangs off the edge produces a picture
+    that no longer lines up with the hole in the frame.
+    """
+    f = scene.get("frame")
+    if not f:
+        return None
+    if not isinstance(f, dict):
+        raise ValueError("frame must be an object")
+    overlay = str(f.get("overlay_url") or "")
+    if not overlay:
+        raise ValueError("frame.overlay_url is required")
+    rect = f.get("rect")
+    if not isinstance(rect, dict):
+        raise ValueError("frame.rect is required")
+    try:
+        x, y = int(rect.get("x", 0)), int(rect.get("y", 0))
+        w, h = int(rect.get("w", 0)), int(rect.get("h", 0))
+    except (TypeError, ValueError):
+        raise ValueError("frame.rect values must be whole numbers")
+    if w <= 0 or h <= 0:
+        raise ValueError(f"frame.rect w and h must be positive, got {w}x{h}")
+    if x < 0 or y < 0 or x + w > width or y + h > height:
+        raise ValueError(
+            f"frame.rect {x},{y} {w}x{h} does not fit inside {width}x{height}"
+        )
+    return {"overlay_url": overlay, "x": x, "y": y, "w": w, "h": h}
+
+
+def _clip_plan(scene: Dict[str, Any], duration: float) -> tuple[str, float]:
+    """How to make a clip last exactly `duration`.
+
+    "trim" when it is already long enough, "slow" for a mild stretch, "loop"
+    when the gap is too wide to stretch across. Never a frozen last frame:
+    a still image in the middle of a video reads as a crash.
+    """
+    if scene.get("type") != "clip":
+        return ("trim", 1.0)
+    src = float(scene.get("source_seconds") or 0.0)
+    if src <= 0.05 or duration <= src:
+        return ("trim", 1.0)
+    if duration <= src * MAX_SLOWDOWN:
+        return ("slow", duration / src)
+    return ("loop", 1.0)
+
+
 # ---------------------------------------------------------------------------
 # scene preparation
 # ---------------------------------------------------------------------------
@@ -167,6 +239,9 @@ def _prepare(
     pad: float,
     min_s: float,
     prefix: str = "scene",
+    width: int = 1920,
+    height: int = 1080,
+    overlays: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch every input up front and work out how long each scene runs.
 
@@ -176,7 +251,13 @@ def _prepare(
     `prefix` keeps each call's downloads apart. Without it the intro, the
     outro and scene 0 all wrote to src0 and the last one won — which is why
     the outro used to appear at the start.
+
+    `overlays` is a url -> path cache shared across every call, because a
+    whole video usually sits in one frame and fetching the same PNG ninety
+    times is ninety needless round trips.
     """
+    if overlays is None:
+        overlays = {}
     prepared = []
     for i, scene in enumerate(scenes):
         kind = str(scene.get("type", "image"))
@@ -184,8 +265,31 @@ def _prepare(
         if not src:
             raise ValueError(f"scene {i}: missing url")
 
+        frame = _frame_of(scene, width, height)
+        if frame:
+            cached = overlays.get(frame["overlay_url"])
+            if not cached:
+                cached = _download(
+                    frame["overlay_url"],
+                    os.path.join(work, f"overlay{len(overlays)}.png"),
+                )
+                overlays[frame["overlay_url"]] = cached
+            frame["overlay"] = cached
+
         visual = os.path.join(work, f"{prefix}-src{i}{_extension_of(src)}")
-        _download(src, visual)
+        try:
+            _download(src, visual)
+        except Exception as e:  # noqa: BLE001
+            # A dead stock-video URL should cost this scene its motion, not
+            # the whole render. Only if the caller gave us somewhere to fall
+            # back to: silently dropping a scene would desync the narration.
+            poster = scene.get("poster_url")
+            if not poster:
+                raise
+            print(f"[render] scene {i} visual failed ({e}), using poster", flush=True)
+            visual = os.path.join(work, f"{prefix}-poster{i}{_extension_of(str(poster))}")
+            _download(str(poster), visual)
+            kind = "image"
 
         audio = None
         secs = None
@@ -211,6 +315,9 @@ def _prepare(
             "seconds": max(float(secs), 0.5),
             "caption": str(scene.get("caption") or ""),
             "motion": str(scene.get("motion") or "") or None,
+            "frame": frame,
+            # Needed to choose between stretching and looping a short clip.
+            "source_seconds": _probe_seconds(visual) if kind == "clip" else 0.0,
         })
     return prepared
 
@@ -226,6 +333,7 @@ def _scene_chain(
     captions: bool,
     banner_slot: Optional[int],
     work: str,
+    overlay_slot: Optional[int] = None,
 ) -> List[str]:
     """Filter chain turning one input into a [v{slot}] of exact duration."""
     frames = max(1, round(duration * fps))
@@ -234,38 +342,64 @@ def _scene_chain(
     # so consecutive frames line up exactly, photos want a drift.
     kind = str(scene.get("motion") or motion)
 
+    # With a frame, the picture is rendered at the window's size and the pan
+    # happens inside it; the frame itself is a still PNG laid over the top, so
+    # it never moves however hard the photo does.
+    frame = scene.get("frame")
+    rw, rh = (frame["w"], frame["h"]) if frame else (width, height)
+
     if scene["type"] == "clip":
         # Loop a short clip rather than freezing on its last frame.
         # Scale to cover, then centre-crop (crop defaults to centred).
         # The input carries -stream_loop -1, so a clip shorter than its
         # narration repeats seamlessly instead of freezing on its last frame;
         # trim cuts whatever is left over.
+        # "slow" stretches a slightly short clip; "loop" repeats a very short
+        # one (the input carries -stream_loop -1). Either way it never freezes.
+        plan, factor = _clip_plan(scene, duration)
+        speed = f"setpts=PTS*{factor:.5f}," if plan == "slow" else ""
         chain = (
-            f"[{slot}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},fps={fps},"
+            f"[{slot}:v]{speed}scale={rw}:{rh}:force_original_aspect_ratio=increase,"
+            f"crop={rw}:{rh},fps={fps},"
             f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[{label}p]"
         )
     elif kind == "none":
         # No zoompan at all. Oversampling and resampling a still would shift
         # pixels between frames; a text slide has to be exactly itself.
         chain = (
-            f"[{slot}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},loop=loop=-1:size=1:start=0,"
+            f"[{slot}:v]scale={rw}:{rh}:force_original_aspect_ratio=increase,"
+            f"crop={rw}:{rh},loop=loop=-1:size=1:start=0,"
             f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,fps={fps}[{label}p]"
         )
     else:
         # Oversample before zoompan so the pan has pixels to work with; 1.25x
         # rather than reel-render's 1.5x because long-form uses gentler moves
         # and the bigger canvas is the main CPU cost.
-        zw, zh = int(width * 1.25), int(height * 1.25)
+        zw, zh = int(rw * 1.25), int(rh * 1.25)
         z, x, y = _motion(kind, scene["index"], frames)
         chain = (
             f"[{slot}:v]scale={zw}:{zh}:force_original_aspect_ratio=increase,crop={zw}:{zh},"
-            f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={width}x{height}:fps={fps}[{label}p]"
+            f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={rw}x{rh}:fps={fps}[{label}p]"
         )
 
     out = [chain]
     cur = f"{label}p"
+
+    if frame:
+        # A canvas the full size of the video, the moving picture dropped into
+        # the window, then the frame PNG over everything. `shortest` lets the
+        # canvas be generously long without padding the scene.
+        out.append(
+            f"color=c=black:s={width}x{height}:r={fps}:d={duration + 1.0:.3f}[{label}bg]"
+        )
+        out.append(
+            f"[{label}bg][{cur}]overlay={frame['x']}:{frame['y']}:shortest=1[{label}w]"
+        )
+        cur = f"{label}w"
+        if overlay_slot is not None:
+            out.append(f"[{overlay_slot}:v]scale={width}:{height}[{label}ov]")
+            out.append(f"[{cur}][{label}ov]overlay=0:0[{label}f]")
+            cur = f"{label}f"
 
     if captions and scene["caption"] and not scene.get("no_caption"):
         draws = []
@@ -290,6 +424,28 @@ def _scene_chain(
     return out
 
 
+def _timeline(scenes: List[Dict[str, Any]]) -> List[Dict[str, float]]:
+    """Where each scene lands in the finished MP4, for YouTube chapters.
+
+    Crossfades do not shift anything. xfade's output runs for
+    `offset + len(second input)`, and each scene is handed an extra tail
+    exactly as long as the transition that will eat it — so scene k still
+    starts at the sum of the scenes before it, and the film still runs for
+    the sum of them all. Batching changes nothing either: the parts are
+    concatenated end to end.
+    """
+    out: List[Dict[str, float]] = []
+    t = 0.0
+    for s in scenes:
+        out.append({
+            "index": int(s["index"]),
+            "start": round(t, 3),
+            "end": round(t + s["seconds"], 3),
+        })
+        t += s["seconds"]
+    return out
+
+
 def _render_batch(
     batch: List[Dict[str, Any]],
     out_path: str,
@@ -300,15 +456,23 @@ def _render_batch(
     width, height, fps = cfg["width"], cfg["height"], cfg["fps"]
     tdur = cfg["transition_seconds"] if cfg["transition"] != "none" and len(batch) > 1 else 0.0
 
+    # Every scene but the last carries extra tail that the crossfade eats.
+    # Worked out once, up front, because -stream_loop is an input flag and so
+    # has to be decided before the filter graph that uses the same number.
+    vdur = {
+        s["index"]: s["seconds"] + (tdur if n < len(batch) - 1 else 0.0)
+        for n, s in enumerate(batch)
+    }
+
     # Inputs in a fixed order so the filter graph can address them by index:
     # every visual, then every narration track, then the banner.
     args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
     slot = 0
     vis_slot = {}
     for s in batch:
-        # -stream_loop on a clip makes a short one repeat seamlessly when the
-        # narration outlasts it. Harmless on a still, but only clips need it.
-        if s["type"] == "clip":
+        # Only a clip too short to stretch across the gap gets looped; one
+        # that is merely a little short is slowed down in the filter graph.
+        if _clip_plan(s, vdur[s["index"]])[0] == "loop":
             args += ["-stream_loop", "-1"]
         args += ["-i", s["visual"]]
         vis_slot[s["index"]] = slot
@@ -324,14 +488,22 @@ def _render_batch(
         args += ["-i", cfg["banner"]]
         banner_slot = slot
         slot += 1
+    # One input per distinct frame PNG in this batch, not one per scene.
+    overlay_slot: Dict[str, int] = {}
+    for s in batch:
+        f = s.get("frame")
+        if f and f.get("overlay") and f["overlay"] not in overlay_slot:
+            args += ["-i", f["overlay"]]
+            overlay_slot[f["overlay"]] = slot
+            slot += 1
 
     chains: List[str] = []
     for n, s in enumerate(batch):
-        # The last scene of a pair carries extra tail that the crossfade eats.
-        vdur = s["seconds"] + (tdur if n < len(batch) - 1 else 0.0)
+        f = s.get("frame")
         chains += _scene_chain(
-            s, vis_slot[s["index"]], width, height, fps, vdur,
+            s, vis_slot[s["index"]], width, height, fps, vdur[s["index"]],
             cfg["motion"], cfg["captions"], banner_slot, work,
+            overlay_slot.get(f["overlay"]) if f and f.get("overlay") else None,
         )
 
     # audio: real narration where present, silence where not
@@ -499,7 +671,12 @@ def _run_render(req: Dict[str, Any]) -> None:
 
             pad = float(req.get("pad_seconds", 0.35))
             min_s = float(req.get("min_scene_seconds", 4.0))
-            scenes = _prepare(req.get("scenes") or [], work, pad, min_s, prefix="scene")
+            # Shared so a frame PNG used by every scene is fetched once.
+            overlays: Dict[str, str] = {}
+            canvas = {"width": cfg["width"], "height": cfg["height"], "overlays": overlays}
+            scenes = _prepare(
+                req.get("scenes") or [], work, pad, min_s, prefix="scene", **canvas
+            )
             if not scenes:
                 raise ValueError("no scenes")
 
@@ -512,7 +689,7 @@ def _run_render(req: Dict[str, Any]) -> None:
             if intro:
                 prepared = _prepare(
                     [{**intro, "caption": ""}], work, pad,
-                    float(intro.get("seconds") or 4.0), prefix="intro",
+                    float(intro.get("seconds") or 4.0), prefix="intro", **canvas,
                 )
                 for s_ in prepared:
                     s_["no_caption"] = True
@@ -520,7 +697,7 @@ def _run_render(req: Dict[str, Any]) -> None:
             if outro:
                 prepared = _prepare(
                     [{**outro, "caption": ""}], work, pad,
-                    float(outro.get("seconds") or 4.0), prefix="outro",
+                    float(outro.get("seconds") or 4.0), prefix="outro", **canvas,
                 )
                 for s_ in prepared:
                     s_["no_caption"] = True
@@ -577,6 +754,7 @@ def _run_render(req: Dict[str, Any]) -> None:
                  duration=round(duration, 2),
                  bytes=os.path.getsize(final),
                  scenes=len(scenes),
+                 timeline=_timeline(scenes),
                  gen_seconds=round(time.time() - t0, 2))
 
     except Exception as e:  # noqa: BLE001
@@ -595,9 +773,11 @@ def _run_render(req: Dict[str, Any]) -> None:
             "kind": "video",
             "status": job.get("status", "error"),
             "duration": job.get("duration"),
+            "timeline": job.get("timeline"),
             "gen_seconds": job.get("gen_seconds"),
             "bytes": job.get("bytes"),
             "scenes": job.get("scenes"),
+            "timeline": job.get("timeline"),
             "error": job.get("error"),
         }
         try:

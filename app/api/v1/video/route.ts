@@ -24,6 +24,21 @@ export const maxDuration = 60;
 /** Enough for a 20-minute video at a sane pace; past this, split it up. */
 const MAX_SCENES = 400;
 
+/**
+ * A branded PNG the size of the video with a hole in it. The scene's picture
+ * is rendered into `rect` and the overlay laid on top, so the branding is
+ * rock steady however much the photo behind it moves.
+ */
+const frameSchema = z.object({
+  overlay_url: z.string().url().max(2000),
+  rect: z.object({
+    x: z.number().int().min(0).max(3840),
+    y: z.number().int().min(0).max(2160),
+    w: z.number().int().min(1).max(3840),
+    h: z.number().int().min(1).max(2160),
+  }),
+});
+
 const sceneSchema = z.object({
   type: z.enum(["image", "clip"]).default("image"),
   url: z.string().url().max(2000),
@@ -35,6 +50,9 @@ const sceneSchema = z.object({
    * zoom entirely so a text slide stays pixel-identical frame to frame.
    */
   motion: z.enum(["none", "classic", "dynamic", "zoom_in"]).optional(),
+  frame: frameSchema.optional(),
+  /** Fallback still if `url` will not download — only useful on a clip. */
+  poster_url: z.string().url().max(2000).optional(),
 });
 
 /** Bookends. Same shape as a scene, but never captioned. */
@@ -107,6 +125,10 @@ export async function POST(req: Request) {
           caption: s.caption,
           seconds: s.seconds,
           motion: s.motion,
+          frame: s.frame
+            ? { overlayUrl: s.frame.overlay_url, rect: s.frame.rect }
+            : undefined,
+          posterUrl: s.poster_url,
         })),
         intro: toBookend(body.intro),
         outro: toBookend(body.outro),

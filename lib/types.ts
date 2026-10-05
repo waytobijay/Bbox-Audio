@@ -277,4 +277,25 @@ export interface VideoScene {
   seconds?: number;
   /** Overrides the video-wide motion. "none" keeps a slide pixel-exact. */
   motion?: "none" | "classic" | "dynamic" | "zoom_in";
+  /**
+   * Renders the picture inside a window of a branded overlay. The motion
+   * runs inside `rect`; the overlay itself never moves.
+   */
+  frame?: VideoFrame;
+  /** Used if `url` cannot be fetched — a dead clip costs its motion, not the job. */
+  posterUrl?: string;
+}
+
+export interface VideoFrame {
+  /** A PNG the size of the video, with a transparent window cut out of it. */
+  overlayUrl: string;
+  /** The window, in pixels, and inside the video's own width and height. */
+  rect: { x: number; y: number; w: number; h: number };
+}
+
+/** Where each scene lands in the finished MP4 — YouTube chapters, mostly. */
+export interface VideoChapterSpan {
+  index: number;
+  start: number;
+  end: number;
 }
