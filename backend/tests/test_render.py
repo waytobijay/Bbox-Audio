@@ -499,9 +499,9 @@ class TestTimeline:
 
     def test_scenes_run_back_to_back(self):
         assert _timeline(self.scenes(5.0, 7.0, 3.0)) == [
-            {"index": 0, "start": 0.0, "end": 5.0},
-            {"index": 1, "start": 5.0, "end": 12.0},
-            {"index": 2, "start": 12.0, "end": 15.0},
+            {"index": 0, "kind": "scene", "start": 0.0, "end": 5.0},
+            {"index": 1, "kind": "scene", "start": 5.0, "end": 12.0},
+            {"index": 2, "kind": "scene", "start": 12.0, "end": 15.0},
         ]
 
     def test_it_sums_to_the_length_of_the_film(self):
@@ -517,3 +517,35 @@ class TestTimeline:
     def test_every_entry_keeps_its_own_index(self):
         line = _timeline([{"index": 7, "seconds": 2.0}, {"index": 8, "seconds": 3.0}])
         assert [e["index"] for e in line] == [7, 8]
+
+    def test_bookends_are_labelled_so_scenes_can_be_picked_out(self):
+        # A caller matching chapter titles to the scenes it sent must be able
+        # to drop the bookends. Counting entries cannot do it: one intro and
+        # one outro both make the list exactly one longer.
+        line = _timeline([
+            {"index": 0, "seconds": 4.0, "role": "intro"},
+            {"index": 1, "seconds": 6.0},
+            {"index": 2, "seconds": 5.0},
+            {"index": 3, "seconds": 4.0, "role": "outro"},
+        ])
+        assert [e["kind"] for e in line] == ["intro", "scene", "scene", "outro"]
+
+    def test_filtering_to_scenes_lines_up_with_what_was_sent(self):
+        line = _timeline([
+            {"index": 0, "seconds": 4.0, "role": "intro"},
+            {"index": 1, "seconds": 6.0},
+            {"index": 2, "seconds": 5.0},
+            {"index": 3, "seconds": 4.0, "role": "outro"},
+        ])
+        only = [e for e in line if e["kind"] == "scene"]
+        assert len(only) == 2
+        # The intro still pushes the first scene later in the finished film.
+        assert only[0]["start"] == 4.0
+        assert only[1]["start"] == 10.0
+
+    def test_an_intro_alone_still_shifts_every_scene(self):
+        line = _timeline([
+            {"index": 0, "seconds": 3.0, "role": "intro"},
+            {"index": 1, "seconds": 8.0},
+        ])
+        assert line[1] == {"index": 1, "kind": "scene", "start": 3.0, "end": 11.0}

@@ -296,6 +296,12 @@ export interface VideoFrame {
 /** Where each scene lands in the finished MP4 — YouTube chapters, mostly. */
 export interface VideoChapterSpan {
   index: number;
+  /**
+   * Which part of the video this is. Filtering to "scene" lines the timeline
+   * up with the scenes the caller sent, whatever bookends were added — the
+   * length alone cannot distinguish one intro from one outro.
+   */
+  kind: "intro" | "scene" | "outro";
   start: number;
   end: number;
 }

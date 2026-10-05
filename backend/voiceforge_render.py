@@ -424,7 +424,7 @@ def _scene_chain(
     return out
 
 
-def _timeline(scenes: List[Dict[str, Any]]) -> List[Dict[str, float]]:
+def _timeline(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Where each scene lands in the finished MP4, for YouTube chapters.
 
     Crossfades do not shift anything. xfade's output runs for
@@ -433,12 +433,18 @@ def _timeline(scenes: List[Dict[str, Any]]) -> List[Dict[str, float]]:
     starts at the sum of the scenes before it, and the film still runs for
     the sum of them all. Batching changes nothing either: the parts are
     concatenated end to end.
+
+    Each entry says whether it is the intro, a scene or the outro. Without
+    that a caller matching chapter titles to scenes has to guess how many
+    bookends were added, and guessing from the length alone cannot tell one
+    intro from one outro.
     """
-    out: List[Dict[str, float]] = []
+    out: List[Dict[str, Any]] = []
     t = 0.0
     for s in scenes:
         out.append({
             "index": int(s["index"]),
+            "kind": str(s.get("role") or "scene"),
             "start": round(t, 3),
             "end": round(t + s["seconds"], 3),
         })
@@ -693,6 +699,7 @@ def _run_render(req: Dict[str, Any]) -> None:
                 )
                 for s_ in prepared:
                     s_["no_caption"] = True
+                    s_["role"] = "intro"
                 scenes = prepared + scenes
             if outro:
                 prepared = _prepare(
@@ -701,6 +708,7 @@ def _run_render(req: Dict[str, Any]) -> None:
                 )
                 for s_ in prepared:
                     s_["no_caption"] = True
+                    s_["role"] = "outro"
                 scenes = scenes + prepared
 
             # _prepare numbers scenes from zero per call, so renumber once the
