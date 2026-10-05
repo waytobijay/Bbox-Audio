@@ -43,7 +43,21 @@ jobs:
         run: python -c "from backend.voiceforge_render import create_render_app; print('render module imports cleanly')"
 
       - name: Run tests
-        run: python -m pytest backend/tests -q
+        # Echo the failure as a workflow annotation as well as to the log:
+        # job logs need authentication to read, annotations do not, so a
+        # failure stays diagnosable without hunting for a token.
+        run: |
+          set +e
+          python -m pytest backend/tests -q --tb=short > pytest.out 2>&1
+          code=$?
+          cat pytest.out
+          if [ $code -ne 0 ]; then
+            {
+              echo "::error::pytest failed"
+              grep -E "^(FAILED|E  |assert|backend/tests)" pytest.out | head -30                 | while IFS= read -r line; do echo "::error::$line"; done
+            }
+          fi
+          exit $code
 
       - name: Validate the notebook
         # A malformed .ipynb fails only when Colab opens it, which is the
