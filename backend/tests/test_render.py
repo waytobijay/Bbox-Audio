@@ -180,3 +180,112 @@ class TestBookendCaptions:
                               "classic", True, None, "/tmp")
         assert chains[-1].endswith("[v2]")
         assert "format=yuv420p" in chains[-1]
+
+
+class TestPreparePrefix:
+    """The intro, the outro and scene 0 each used to download to src0, so the
+    last one written won and the outro appeared at the start. Separate
+    prefixes are what keep them apart."""
+
+    def test_signature_takes_a_prefix(self):
+        import inspect
+
+        from backend.voiceforge_render import _prepare
+
+        assert "prefix" in inspect.signature(_prepare).parameters
+
+    def test_prefixes_produce_distinct_paths(self):
+        import inspect
+
+        from backend.voiceforge_render import _prepare
+
+        src = inspect.getsource(_prepare)
+        # The filename must be built from the prefix, not from the index alone.
+        assert "{prefix}-src" in src
+        assert "{prefix}-aud" in src
+
+
+class TestPerSceneMotion:
+    @staticmethod
+    def scene(**patch):
+        base = {
+            "index": 0,
+            "type": "image",
+            "visual": "/tmp/src0",
+            "audio": None,
+            "seconds": 5.0,
+            "caption": "",
+        }
+        base.update(patch)
+        return base
+
+    def test_scene_motion_overrides_the_video_default(self):
+        # Video-wide "dynamic", this scene "none" -> no zoompan at all.
+        chains = _scene_chain(self.scene(motion="none"), 0, 1920, 1080, 30, 5.0,
+                              "dynamic", False, None, "/tmp")
+        assert "zoompan" not in ";".join(chains)
+
+    def test_none_keeps_a_still_pixel_exact(self):
+        # No 1.25x oversample, so frames are not resampled between each other.
+        joined = ";".join(_scene_chain(self.scene(motion="none"), 0, 1920, 1080, 30, 5.0,
+                                       "classic", False, None, "/tmp"))
+        assert "scale=1920:1080" in joined
+        assert "2400" not in joined  # 1920 * 1.25
+        assert "loop=loop=-1:size=1" in joined
+
+    def test_zoom_in_is_a_centred_push(self):
+        joined = ";".join(_scene_chain(self.scene(motion="zoom_in"), 0, 1920, 1080, 30, 5.0,
+                                       "none", False, None, "/tmp"))
+        assert "zoompan" in joined
+        assert "1+0.08*on/" in joined
+
+    def test_falls_back_to_the_video_default_when_omitted(self):
+        joined = ";".join(_scene_chain(self.scene(), 0, 1920, 1080, 30, 5.0,
+                                       "zoom_in", False, None, "/tmp"))
+        assert "1+0.08*on/" in joined
+
+    def test_motion_does_not_apply_to_a_clip(self):
+        joined = ";".join(_scene_chain(self.scene(type="clip", motion="zoom_in"),
+                                       0, 1920, 1080, 30, 5.0, "classic", False, None, "/tmp"))
+        assert "zoompan" not in joined
+
+
+class TestClipHandling:
+    @staticmethod
+    def clip(**patch):
+        base = {
+            "index": 0,
+            "type": "clip",
+            "visual": "/tmp/src0.mp4",
+            "audio": None,
+            "seconds": 12.0,
+            "caption": "",
+        }
+        base.update(patch)
+        return base
+
+    def test_scales_to_cover_then_centre_crops(self):
+        joined = ";".join(_scene_chain(self.clip(), 0, 1920, 1080, 30, 12.0,
+                                       "classic", False, None, "/tmp"))
+        assert "force_original_aspect_ratio=increase" in joined
+        assert "crop=1920:1080" in joined
+
+    def test_no_longer_freezes_the_last_frame(self):
+        # tpad=clone held the final frame when narration outlasted the clip;
+        # the input now loops instead.
+        joined = ";".join(_scene_chain(self.clip(), 0, 1920, 1080, 30, 12.0,
+                                       "classic", False, None, "/tmp"))
+        assert "tpad" not in joined
+
+    def test_trims_to_the_narration_length(self):
+        joined = ";".join(_scene_chain(self.clip(), 0, 1920, 1080, 30, 12.0,
+                                       "classic", False, None, "/tmp"))
+        assert "trim=duration=12.000" in joined
+
+    def test_clips_are_looped_at_the_input(self):
+        import inspect
+
+        from backend.voiceforge_render import _render_batch
+
+        src = inspect.getsource(_render_batch)
+        assert "-stream_loop" in src

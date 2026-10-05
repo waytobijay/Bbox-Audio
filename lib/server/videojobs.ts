@@ -27,7 +27,7 @@ export interface VideoJobInput {
   width: number;
   height: number;
   fps: number;
-  motion: "none" | "classic" | "dynamic";
+  motion: "none" | "classic" | "dynamic" | "zoom_in";
   transition: string;
   transitionSeconds: number;
   captions: boolean;
@@ -130,6 +130,7 @@ export async function createAndDispatchRender(
       audio_url: s.audioUrl,
       caption: s.caption,
       seconds: s.seconds,
+      motion: s.motion,
     })),
     width: input.width,
     height: input.height,

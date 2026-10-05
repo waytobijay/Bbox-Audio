@@ -29,6 +29,11 @@ const sceneSchema = z.object({
   audio_url: z.string().url().max(2000).optional(),
   caption: z.string().max(300).optional(),
   seconds: z.number().min(0.5).max(600).optional(),
+  /**
+   * Overrides the video-wide motion for this scene. "none" disables pan and
+   * zoom entirely so a text slide stays pixel-identical frame to frame.
+   */
+  motion: z.enum(["none", "classic", "dynamic", "zoom_in"]).optional(),
 });
 
 /** Bookends. Same shape as a scene, but never captioned. */
@@ -47,7 +52,7 @@ const schema = z.object({
   width: z.number().int().min(256).max(3840).default(1920),
   height: z.number().int().min(256).max(2160).default(1080),
   fps: z.number().int().min(12).max(60).default(30),
-  motion: z.enum(["none", "classic", "dynamic"]).default("classic"),
+  motion: z.enum(["none", "classic", "dynamic", "zoom_in"]).default("classic"),
   transition: z.string().max(30).default("mix"),
   transition_seconds: z.number().min(0.1).max(2).default(0.5),
   captions: z.boolean().default(false),
@@ -83,6 +88,7 @@ export async function POST(req: Request) {
           audioUrl: s.audio_url,
           caption: s.caption,
           seconds: s.seconds,
+          motion: s.motion,
         })),
         intro: body.intro
           ? { type: body.intro.type, url: body.intro.url, audioUrl: body.intro.audio_url, seconds: body.intro.seconds }

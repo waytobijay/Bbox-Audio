@@ -131,11 +131,15 @@ def _textfile(work: str, name: str, text: str) -> str:
 
 def _motion(kind: str, index: int, frames: int) -> tuple[str, str, str]:
     """zoompan expressions. Long-form wants slower, calmer movement than a
-    Short — a 20-minute video of aggressive pushes is exhausting."""
+    Short — a 20-minute video of aggressive pushes is exhausting.
+
+    "none" never reaches here: a still scene skips zoompan entirely so its
+    frames stay pixel-identical (see _scene_chain)."""
     cx, cy = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
-    if kind == "none":
-        return "1", cx, cy
     f = max(frames, 1)
+    if kind == "zoom_in":
+        # Centred, deliberately gentle — a slide that creeps rather than lunges.
+        return f"1+0.08*on/{f}", cx, cy
     if kind != "dynamic":
         return f"min(zoom+0.00035,1.10)", cx, cy
     style = index % 4
@@ -152,11 +156,21 @@ def _motion(kind: str, index: int, frames: int) -> tuple[str, str, str]:
 # scene preparation
 # ---------------------------------------------------------------------------
 
-def _prepare(scenes: List[Dict[str, Any]], work: str, pad: float, min_s: float) -> List[Dict[str, Any]]:
+def _prepare(
+    scenes: List[Dict[str, Any]],
+    work: str,
+    pad: float,
+    min_s: float,
+    prefix: str = "scene",
+) -> List[Dict[str, Any]]:
     """Fetch every input up front and work out how long each scene runs.
 
     Doing this before any encoding means a broken URL fails in seconds rather
     than twenty minutes into a render.
+
+    `prefix` keeps each call's downloads apart. Without it the intro, the
+    outro and scene 0 all wrote to src0 and the last one won — which is why
+    the outro used to appear at the start.
     """
     prepared = []
     for i, scene in enumerate(scenes):
@@ -165,14 +179,14 @@ def _prepare(scenes: List[Dict[str, Any]], work: str, pad: float, min_s: float) 
         if not src:
             raise ValueError(f"scene {i}: missing url")
 
-        visual = os.path.join(work, f"src{i}{_extension_of(src)}")
+        visual = os.path.join(work, f"{prefix}-src{i}{_extension_of(src)}")
         _download(src, visual)
 
         audio = None
         secs = None
         if scene.get("audio_url"):
             audio_url = str(scene["audio_url"])
-            audio = os.path.join(work, f"aud{i}{_extension_of(audio_url)}")
+            audio = os.path.join(work, f"{prefix}-aud{i}{_extension_of(audio_url)}")
             _download(audio_url, audio)
             secs = _probe_seconds(audio) + pad
 
@@ -191,6 +205,7 @@ def _prepare(scenes: List[Dict[str, Any]], work: str, pad: float, min_s: float) 
             "audio": audio,
             "seconds": max(float(secs), 0.5),
             "caption": str(scene.get("caption") or ""),
+            "motion": str(scene.get("motion") or "") or None,
         })
     return prepared
 
@@ -210,23 +225,35 @@ def _scene_chain(
     """Filter chain turning one input into a [v{slot}] of exact duration."""
     frames = max(1, round(duration * fps))
     label = f"v{slot}"
+    # A scene may override the video-wide setting — text slides want "none"
+    # so consecutive frames line up exactly, photos want a drift.
+    kind = str(scene.get("motion") or motion)
 
     if scene["type"] == "clip":
         # Loop a short clip rather than freezing on its last frame.
-        # tpad clones the final frame when the clip is shorter than the scene;
-        # trim cuts it when it is longer. "loop" would repeat a single frame.
+        # Scale to cover, then centre-crop (crop defaults to centred).
+        # The input carries -stream_loop -1, so a clip shorter than its
+        # narration repeats seamlessly instead of freezing on its last frame;
+        # trim cuts whatever is left over.
         chain = (
             f"[{slot}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},fps={fps},"
-            f"tpad=stop_mode=clone:stop_duration={duration:.3f},"
             f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[{label}p]"
+        )
+    elif kind == "none":
+        # No zoompan at all. Oversampling and resampling a still would shift
+        # pixels between frames; a text slide has to be exactly itself.
+        chain = (
+            f"[{slot}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},loop=loop=-1:size=1:start=0,"
+            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,fps={fps}[{label}p]"
         )
     else:
         # Oversample before zoompan so the pan has pixels to work with; 1.25x
         # rather than reel-render's 1.5x because long-form uses gentler moves
         # and the bigger canvas is the main CPU cost.
         zw, zh = int(width * 1.25), int(height * 1.25)
-        z, x, y = _motion(motion, scene["index"], frames)
+        z, x, y = _motion(kind, scene["index"], frames)
         chain = (
             f"[{slot}:v]scale={zw}:{zh}:force_original_aspect_ratio=increase,crop={zw}:{zh},"
             f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={width}x{height}:fps={fps}[{label}p]"
@@ -274,6 +301,10 @@ def _render_batch(
     slot = 0
     vis_slot = {}
     for s in batch:
+        # -stream_loop on a clip makes a short one repeat seamlessly when the
+        # narration outlasts it. Harmless on a still, but only clips need it.
+        if s["type"] == "clip":
+            args += ["-stream_loop", "-1"]
         args += ["-i", s["visual"]]
         vis_slot[s["index"]] = slot
         slot += 1
@@ -463,7 +494,7 @@ def _run_render(req: Dict[str, Any]) -> None:
 
             pad = float(req.get("pad_seconds", 0.35))
             min_s = float(req.get("min_scene_seconds", 4.0))
-            scenes = _prepare(req.get("scenes") or [], work, pad, min_s)
+            scenes = _prepare(req.get("scenes") or [], work, pad, min_s, prefix="scene")
             if not scenes:
                 raise ValueError("no scenes")
 
@@ -474,12 +505,18 @@ def _run_render(req: Dict[str, Any]) -> None:
             intro = req.get("intro")
             outro = req.get("outro")
             if intro:
-                prepared = _prepare([{**intro, "caption": ""}], work, pad, float(intro.get("seconds") or 4.0))
+                prepared = _prepare(
+                    [{**intro, "caption": ""}], work, pad,
+                    float(intro.get("seconds") or 4.0), prefix="intro",
+                )
                 for s_ in prepared:
                     s_["no_caption"] = True
                 scenes = prepared + scenes
             if outro:
-                prepared = _prepare([{**outro, "caption": ""}], work, pad, float(outro.get("seconds") or 4.0))
+                prepared = _prepare(
+                    [{**outro, "caption": ""}], work, pad,
+                    float(outro.get("seconds") or 4.0), prefix="outro",
+                )
                 for s_ in prepared:
                     s_["no_caption"] = True
                 scenes = scenes + prepared

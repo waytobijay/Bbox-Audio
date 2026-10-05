@@ -275,4 +275,6 @@ export interface VideoScene {
   caption?: string;
   /** Overrides the duration; otherwise the narration decides it. */
   seconds?: number;
+  /** Overrides the video-wide motion. "none" keeps a slide pixel-exact. */
+  motion?: "none" | "classic" | "dynamic" | "zoom_in";
 }

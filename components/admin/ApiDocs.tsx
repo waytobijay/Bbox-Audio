@@ -322,10 +322,51 @@ export function ApiDocs({ appUrl }: { appUrl: string }) {
 }`}
         />
         <p className="mt-3">
-          Rendered before the first scene and after the last, with the same transition. Length
+          Rendered in order: intro, every scene, then outro, with the same transition. Length
           comes from <code className="font-mono text-[12px]">audio_url</code> if given, else{" "}
           <code className="font-mono text-[12px]">seconds</code>, else the clip&apos;s own length,
           else 4 seconds. Captions are never drawn on them — a bookend carries its own title.
+        </p>
+      </Section>
+
+      <Section
+        title="Per-scene motion"
+        description="Override the video-wide pan and zoom on individual scenes."
+      >
+        <Snippet
+          code={`{ "type": "image", "url": "https://…/slide.png", "motion": "none" }`}
+        />
+        <table className="mt-2 w-full border-collapse text-[13px]">
+          <tbody>
+            <tr className="border-b border-line">
+              <td className="py-2 pr-3 font-mono text-[12px] text-ink">none</td>
+              <td className="py-2 text-muted">
+                No pan or zoom, and no resampling — consecutive frames are pixel-identical. Use it
+                for text slides, where a drifting crop makes the type shimmer.
+              </td>
+            </tr>
+            <tr className="border-b border-line">
+              <td className="py-2 pr-3 font-mono text-[12px] text-ink">zoom_in</td>
+              <td className="py-2 text-muted">Slow centred push, 1.0 to 1.08 across the scene.</td>
+            </tr>
+            <tr className="border-b border-line">
+              <td className="py-2 pr-3 font-mono text-[12px] text-ink">classic</td>
+              <td className="py-2 text-muted">Gentle creeping zoom. The default.</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-3 font-mono text-[12px] text-ink">dynamic</td>
+              <td className="py-2 text-muted">Alternates pushes, pulls and pans across scenes.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p className="mt-3">
+          Omit it and the scene follows the top-level{" "}
+          <code className="font-mono text-[12px]">motion</code>. It has no effect on a{" "}
+          <code className="font-mono text-[12px]">clip</code>, which plays as filmed.
+        </p>
+        <p className="mt-3">
+          Clips are scaled to cover and centre-cropped. If the narration outlasts the clip it loops
+          seamlessly rather than freezing on its last frame, and is trimmed to the narration length.
         </p>
       </Section>
 
