@@ -60,7 +60,8 @@ vi.mock("../server/voices", () => ({
   getVoice: async (id: string) => (voiceExists && id === libraryVoice.id ? libraryVoice : null),
 }));
 
-const { collectJob, createAndDispatchJob, reconcileJob } = await import("../server/jobs");
+const { collectJob, createAndDispatchJob, flushPending, getJob, reconcileJob } =
+  await import("../server/jobs");
 type Job = Awaited<ReturnType<typeof reconcileJob>>;
 
 function job(patch: Partial<Job> = {}): Job {
@@ -219,12 +220,18 @@ describe("reconcileJob", () => {
   });
 });
 
-describe("createAndDispatchJob — voice must be on the GPU first", () => {
+describe("createAndDispatchJob — dispatch happens after the response", () => {
   /**
-   * A job renders in a background worker, so an unknown voice can't be
-   * recovered from the way a single chunk can (react to 409, retry). It has
-   * to be pushed before dispatch, or the whole render dies with
-   * "voice_not_cached" — which is exactly what happened in production.
+   * The GPU call is made after the response is sent, because this route is
+   * killed at 60 seconds and a cold container can eat most of that. The
+   * caller polls status_url, so it only needs the job record back.
+   *
+   * The voice still has to reach the backend before the render runs — a
+   * background worker can't recover from "voice_not_cached" the way a single
+   * chunk can — so the push is still attempted, just not on the clock.
+   *
+   * `flushPending` is what a request's lifetime does in production: wait for
+   * the scheduled work to settle.
    */
   const dispatchInput = {
     chunks: ["Hello."],
@@ -249,12 +256,15 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
     });
 
     const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    // Returns before the GPU has been touched at all.
+    expect(job.status).toBe("queued");
+
+    await flushPending();
 
     const puts = fetchMock.mock.calls.filter(
       (c) => String(c[0]).includes("/voices/me-1234") && c[1]?.method === "PUT"
     );
     expect(puts).toHaveLength(1);
-    expect(job.status).toBe("running");
   });
 
   it("skips the upload when the backend already has it", async () => {
@@ -264,6 +274,7 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
     });
 
     await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
 
     expect(
       fetchMock.mock.calls.some((c) => String(c[0]).includes("/voices/me-1234"))
@@ -278,6 +289,7 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
     });
 
     await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
 
     expect(
       fetchMock.mock.calls.some((c) => String(c[0]).includes("/voices/me-1234"))
@@ -304,10 +316,48 @@ describe("createAndDispatchJob — voice must be on the GPU first", () => {
       "/jobs": { json: { accepted: true } },
     });
 
-    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
 
-    expect(job.status).toBe("running");
     expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(true);
+  });
+
+  it("marks the job running once the backend accepts it", async () => {
+    routeFetch({
+      "/health": { json: { voices_cached: ["me-1234"] } },
+      "/jobs": { json: { accepted: true } },
+    });
+
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
+
+    expect((await getJob(job.id))?.status).toBe("running");
+  });
+
+  it("records a failed dispatch on the job, since nobody is listening", async () => {
+    // This used to be a 502 on the response. The response has already gone,
+    // so the job record is the only place a poller can learn about it.
+    routeFetch({
+      "/health": { json: { voices_cached: ["me-1234"] } },
+      "/jobs": { status: 500, body: "boom" },
+    });
+
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
+
+    const saved = await getJob(job.id);
+    expect(saved?.status).toBe("error");
+    expect(saved?.error).toMatch(/500/);
+  });
+
+  it("never leaves a job stuck in queued when the backend is unreachable", async () => {
+    // No /jobs route at all: the stub answers 404, which is unreachable enough.
+    routeFetch({ "/health": { status: 500 } });
+
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
+
+    expect((await getJob(job.id))?.status).toBe("error");
   });
 });
 
@@ -368,8 +418,9 @@ describe("cold backend must not kill the job", () => {
     });
 
     const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
 
-    expect(job.status).toBe("running");
+    expect((await getJob(job.id))?.status).toBe("running");
     expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/jobs"))).toBe(true);
   });
 
@@ -381,6 +432,7 @@ describe("cold backend must not kill the job", () => {
     });
 
     await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
 
     const dispatch = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/jobs"));
     const sent = JSON.parse(String((dispatch?.[1] as RequestInit)?.body));

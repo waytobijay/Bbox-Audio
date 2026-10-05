@@ -17,6 +17,7 @@
  * dropped callback therefore costs a delay, not the render.
  */
 
+import { after } from "next/server";
 import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
 import { backendHeaders, recordHealthFacts, resolveBackend } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
@@ -169,6 +170,32 @@ export class JobError extends Error {
  * /health lists what's already cached, so a warm backend costs one cheap GET
  * rather than re-uploading the clip on every job.
  */
+/**
+ * Work that has to finish, but that the caller must not wait for.
+ *
+ * The task starts immediately; `after` only asks the platform to keep the
+ * invocation alive until it settles. Outside a request context — tests, a
+ * script — `after` throws and the task simply runs on its own, which is why
+ * `flushPending` exists.
+ */
+const PENDING = new Set<Promise<void>>();
+
+function background(task: () => Promise<void>): void {
+  const done = task().catch(() => {});
+  PENDING.add(done);
+  void done.finally(() => PENDING.delete(done));
+  try {
+    after(() => done);
+  } catch {
+    // No request to extend. Nothing else to do: the task is already running.
+  }
+}
+
+/** Settle any work scheduled by `background`. For tests and scripts. */
+export async function flushPending(): Promise<void> {
+  while (PENDING.size) await Promise.all([...PENDING]);
+}
+
 async function ensureVoiceCached(
   backendUrl: string,
   voiceId: string,
@@ -234,10 +261,13 @@ export async function createAndDispatchJob(
     );
   }
 
-  // Best-effort warm-up only. If the backend is awake this saves it a
-  // download; if it's cold this quietly gives up, because the job payload
-  // now carries the clip and the worker can cache it without a deadline.
-  await ensureVoiceCached(backend.url, input.voiceId, backend.provider);
+  // An unknown voice is the caller's mistake, so it has to come back as a 404
+  // from this request — not as a job that quietly fails a minute later. The
+  // read is a single Redis GET, which costs nothing against the budget.
+  const voice = await getVoice(input.voiceId);
+  if (!voice) {
+    throw new JobError(`No voice with id "${input.voiceId}".`, 404, "unknown_voice");
+  }
 
   const id = crypto.randomUUID();
   const now = Date.now();
@@ -259,7 +289,6 @@ export async function createAndDispatchJob(
   await saveJob(job);
   await indexJob(id);
 
-  const voice = await getVoice(input.voiceId);
   const body = {
     job_id: id,
     voice_id: input.voiceId,
@@ -284,34 +313,48 @@ export async function createAndDispatchJob(
     callback_token: await callbackToken(id),
   };
 
-  try {
-    const res = await fetch(`${backend.url}/jobs`, {
-      method: "POST",
-      headers: backendHeaders(),
-      body: JSON.stringify(body),
-      // The one call that genuinely has to wait for a cold container to boot.
-      // Modal has been measured around 30s; give it room inside the 60s
-      // function budget now that nothing else is competing for it.
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
+  // Everything above was Redis. Everything below talks to a GPU that may be
+  // cold, and this route is killed at 60 seconds — so it happens AFTER the
+  // response. The caller already polls status_url, so it loses nothing by
+  // being told "queued" a second from now instead of "running" a minute from
+  // now, and a boot slower than the budget no longer fails a job the backend
+  // went on to accept anyway.
+  background(async () => {
+    try {
+      // Best-effort warm-up. If the backend is awake this saves it a
+      // download; if it's cold it gives up quietly, because the payload
+      // carries the clip and the worker caches it with no deadline.
+      await ensureVoiceCached(backend.url, input.voiceId, backend.provider);
+    } catch {
+      // Already non-fatal by design; the job below still carries the voice.
     }
-  } catch (e) {
-    job = await saveJob({
-      ...job,
-      status: "error",
-      error: e instanceof Error ? e.message : "could not reach the backend",
-    });
-    throw new JobError(
-      `Couldn't start the render on ${backend.provider}: ${job.error}`,
-      502,
-      "dispatch_failed"
-    );
-  }
+    try {
+      const res = await fetch(`${backend.url}/jobs`, {
+        method: "POST",
+        headers: backendHeaders(),
+        body: JSON.stringify(body),
+        // Room for a cold container to boot, measured around 30s on Modal.
+        signal: AbortSignal.timeout(45_000),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
+      }
+      await saveJob({ ...job, status: "running" });
+    } catch (e) {
+      // The caller is no longer listening, so the job record is the only
+      // place this can be reported. Pollers surface it as a failed job.
+      await saveJob({
+        ...job,
+        status: "error",
+        error: `Couldn't start the render on ${backend.provider}: ${
+          e instanceof Error ? e.message : "could not reach the backend"
+        }`,
+      });
+    }
+  });
 
-  return saveJob({ ...job, status: "running" });
+  return job;
 }
 
 // --- collection -----------------------------------------------------------
