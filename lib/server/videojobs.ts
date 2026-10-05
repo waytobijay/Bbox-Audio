@@ -22,8 +22,9 @@ export const RENDER_STALE_AFTER_MS = 3 * 60 * 60 * 1000;
 
 export interface VideoJobInput {
   scenes: VideoScene[];
-  intro?: VideoScene;
-  outro?: VideoScene;
+  /** A pinned scene, `true` to take one from the asset library, or false. */
+  intro?: VideoScene | boolean;
+  outro?: VideoScene | boolean;
   width: number;
   height: number;
   fps: number;
@@ -73,6 +74,28 @@ async function chooseAssets(input: VideoJobInput, totalSeconds: number) {
   return chosen;
 }
 
+/**
+ * Turn an intro/outro spec into the wire shape the renderer wants.
+ *
+ * `true` means "whatever the library has", which is how `music` and `banner`
+ * have always worked. An empty library yields nothing rather than an error:
+ * no intro is a fine video, a failed render is not.
+ */
+export async function resolveBookend(
+  spec: VideoScene | boolean | undefined,
+  kind: "intro" | "outro"
+): Promise<
+  { type: string; url: string; audio_url?: string; seconds?: number } | undefined
+> {
+  if (!spec) return undefined;
+  if (spec === true) {
+    const asset = (await pickAssets(kind, 1))[0];
+    // Uploads for these kinds are restricted to video/*, so "clip" is right.
+    return asset ? { type: "clip", url: asset.url } : undefined;
+  }
+  return { type: spec.type, url: spec.url, audio_url: spec.audioUrl, seconds: spec.seconds };
+}
+
 /** Best-effort guess so sfx can be placed and the client sees an estimate. */
 export function estimateSeconds(scenes: VideoScene[], minSceneSeconds: number): number {
   return scenes.reduce((n, s) => n + (s.seconds ?? minSceneSeconds), 0);
@@ -117,13 +140,15 @@ export async function createAndDispatchRender(
 
   const assets = await chooseAssets(input, estimate);
 
-  const bookend = (s?: VideoScene) =>
-    s ? { type: s.type, url: s.url, audio_url: s.audioUrl, seconds: s.seconds } : undefined;
+  const [intro, outro] = await Promise.all([
+    resolveBookend(input.intro, "intro"),
+    resolveBookend(input.outro, "outro"),
+  ]);
 
   const body = {
     job_id: id,
-    intro: bookend(input.intro),
-    outro: bookend(input.outro),
+    intro,
+    outro,
     scenes: input.scenes.map((s) => ({
       type: s.type,
       url: s.url,

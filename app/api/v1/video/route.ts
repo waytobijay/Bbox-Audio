@@ -5,8 +5,8 @@
  * longer than a Vercel function may live, so this returns a job id and the
  * render continues on the backend.
  *
- * Music, banner and sound effects are chosen from your asset library by the
- * gateway, so the result is the same whichever backend answered and a
+ * Music, banner, intro, outro and sound effects are chosen from your asset
+ * library by the gateway, so the result is the same whichever backend answered and a
  * notebook needs no files on disk.
  */
 
@@ -15,6 +15,7 @@ import { z } from "zod";
 import { apiError, appUrlFrom, authenticate } from "@/lib/server/apiauth";
 import { JobError } from "@/lib/server/jobs";
 import { createAndDispatchRender } from "@/lib/server/videojobs";
+import type { VideoScene } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,17 +38,28 @@ const sceneSchema = z.object({
 });
 
 /** Bookends. Same shape as a scene, but never captioned. */
-const bookendSchema = z.object({
+const bookendObject = z.object({
   type: z.enum(["image", "clip"]).default("clip"),
   url: z.string().url().max(2000),
   audio_url: z.string().url().max(2000).optional(),
   seconds: z.number().min(0.5).max(120).optional(),
 });
 
+/**
+ * `true` takes one from the asset library, exactly as `music` and `banner`
+ * already do; `false` suppresses it; an object pins a specific URL.
+ *
+ * It used to accept only the object, so a caller who had uploaded an intro
+ * still got a video that started on scene one — the library held the clip and
+ * nothing ever reached for it. Boolean is the default because that is the
+ * shape every other asset on this endpoint already uses.
+ */
+const bookendSchema = z.union([z.boolean(), bookendObject]);
+
 const schema = z.object({
   scenes: z.array(sceneSchema).min(1).max(MAX_SCENES),
-  intro: bookendSchema.optional(),
-  outro: bookendSchema.optional(),
+  intro: bookendSchema.default(true),
+  outro: bookendSchema.default(true),
   /** 16:9 by default — this endpoint is for long-form. */
   width: z.number().int().min(256).max(3840).default(1920),
   height: z.number().int().min(256).max(2160).default(1080),
@@ -62,6 +74,12 @@ const schema = z.object({
   banner: z.boolean().default(true),
   callback_url: z.string().url().max(2000).optional(),
 });
+
+/** Boolean through untouched; an object into the internal camelCase shape. */
+function toBookend(b: z.infer<typeof bookendSchema>): VideoScene | boolean {
+  if (typeof b === "boolean") return b;
+  return { type: b.type, url: b.url, audioUrl: b.audio_url, seconds: b.seconds };
+}
 
 export async function POST(req: Request) {
   const auth = await authenticate(req);
@@ -90,12 +108,8 @@ export async function POST(req: Request) {
           seconds: s.seconds,
           motion: s.motion,
         })),
-        intro: body.intro
-          ? { type: body.intro.type, url: body.intro.url, audioUrl: body.intro.audio_url, seconds: body.intro.seconds }
-          : undefined,
-        outro: body.outro
-          ? { type: body.outro.type, url: body.outro.url, audioUrl: body.outro.audio_url, seconds: body.outro.seconds }
-          : undefined,
+        intro: toBookend(body.intro),
+        outro: toBookend(body.outro),
         width: body.width,
         height: body.height,
         fps: body.fps,

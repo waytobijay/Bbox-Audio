@@ -312,15 +312,31 @@ export function ApiDocs({ appUrl }: { appUrl: string }) {
 
       <Section
         title="Intro and outro"
-        description="Optional bookends on a video render."
+        description="Bookends on a video render. On by default, taken from your asset library."
       >
         <Snippet
-          code={`{
+          code={`// Default — a random intro/outro from the library, if you have any:
+{ "scenes": [ … ] }
+
+// Suppress one or both:
+{ "scenes": [ … ], "intro": true, "outro": false }
+
+// Or pin a specific file:
+{
   "intro": { "type": "clip", "url": "https://…/intro.mp4" },
   "scenes": [ … ],
   "outro": { "type": "image", "url": "https://…/endcard.png", "seconds": 6 }
 }`}
         />
+        <p className="mt-3">
+          <code className="font-mono text-[12px]">intro</code> and{" "}
+          <code className="font-mono text-[12px]">outro</code> behave like{" "}
+          <code className="font-mono text-[12px]">music</code> and{" "}
+          <code className="font-mono text-[12px]">banner</code>: they default to{" "}
+          <code className="font-mono text-[12px]">true</code>, which picks one from the{" "}
+          <strong>intro</strong> / <strong>outro</strong> kinds in your asset library. An empty
+          library is not an error — you simply get no bookend.
+        </p>
         <p className="mt-3">
           Rendered in order: intro, every scene, then outro, with the same transition. Length
           comes from <code className="font-mono text-[12px]">audio_url</code> if given, else{" "}
