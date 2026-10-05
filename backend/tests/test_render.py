@@ -94,13 +94,15 @@ class TestSceneChain:
                               "classic", False, None, "/tmp")
         assert any("zoompan" in c for c in chains)
 
-    def test_clip_scene_clones_rather_than_looping_one_frame(self):
-        # "loop" repeats a single frame; tpad clones the last frame to fill.
+    def test_clip_scene_is_trimmed_not_zoomed(self):
+        # A clip plays as filmed: no zoompan, and no tpad freeze — the input
+        # loops instead when the narration outlasts it (see TestClipHandling).
         chains = _scene_chain(self.scene("clip"), 0, 1920, 1080, 30, 5.0,
                               "classic", False, None, "/tmp")
         joined = ";".join(chains)
-        assert "tpad=stop_mode=clone" in joined
+        assert "trim=duration=5.000" in joined
         assert "zoompan" not in joined
+        assert "tpad" not in joined
 
     def test_output_label_matches_the_slot(self):
         chains = _scene_chain(self.scene(), 3, 1920, 1080, 30, 5.0,
