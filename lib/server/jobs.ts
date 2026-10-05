@@ -22,7 +22,7 @@ import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
 import { backendHeaders, recordHealthFacts, resolveBackend } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
-import { kvDel, kvGet, kvSet } from "./redis";
+import { getRedis, kvDel, kvGet, kvSet } from "./redis";
 import { getVoice } from "./voices";
 import { getSettings } from "./redis";
 
@@ -389,6 +389,34 @@ export async function collectJob(job: Job, result: BackendResult): Promise<Job> 
     return saveJob({ ...job, status: "error", error: "job has no backend to collect from" });
   }
 
+  // Two requests can arrive here for the same job: the backend's completion
+  // callback and a status poll (reconcileJob). Whichever finished first used
+  // to DELETE the backend copy while the other was still mid-loop, so the
+  // slower one died on "couldn't collect item N (404)" - reliably once a job
+  // had ~30+ items. Only one collector may run; the other returns what is
+  // stored and the caller simply polls again.
+  const fresh = await getJob(job.id);
+  if (fresh && (fresh.status === "done" || fresh.status === "error")) return fresh;
+  const lockKey = `job:${job.id}:collecting`;
+  if (!(await acquireLock(lockKey, COLLECT_LOCK_SECONDS))) return fresh ?? job;
+  try {
+    return await collectLocked(job, result);
+  } finally {
+    await kvDel(lockKey).catch(() => false);
+  }
+}
+
+const COLLECT_LOCK_SECONDS = 180;
+
+/** SET NX EX - true when this caller now owns the lock (or there is no Redis). */
+async function acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return true;
+  const ok = await r.set(key, String(Date.now()), { nx: true, ex: ttlSeconds });
+  return ok === "OK";
+}
+
+async function collectLocked(job: Job, result: BackendResult): Promise<Job> {
   const format = result.format ?? job.format;
   const contentType = format === "mp3" ? "audio/mpeg" : "audio/wav";
   const backendItems = result.items ?? [];
@@ -400,6 +428,9 @@ export async function collectJob(job: Job, result: BackendResult): Promise<Job> 
       signal: AbortSignal.timeout(50_000),
     });
     if (!res.ok) {
+      // A collector that slipped past the lock may already have finished.
+      const now = await getJob(job.id);
+      if (now?.status === "done") return now;
       return saveJob({
         ...job,
         status: "error",

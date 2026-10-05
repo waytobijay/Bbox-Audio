@@ -176,6 +176,31 @@ describe("collectJob", () => {
     expect(done.format).toBe("wav");
     expect(done.audioUrl).toBe("https://blob.test/jobs/job-1.wav");
   });
+
+  it("a second collector (callback + poll race) returns the finished job instead of failing on a 404", async () => {
+    // First collector finishes and the backend drops its copy...
+    routeFetch({
+      "/jobs/job-1/audio/0": { body: "ONE" },
+      "/jobs/job-1/audio/1": { body: "TWO" },
+    });
+    const result = {
+      status: "done",
+      format: "mp3" as const,
+      items: [
+        { index: 0, duration: 1 },
+        { index: 1, duration: 2 },
+      ],
+    };
+    const first = await collectJob(job({ mode: "items" }), result);
+    expect(first.status).toBe("done");
+
+    // ...so every audio GET now 404s. The late collector must not overwrite "done" with an error.
+    const fetchMock = routeFetch({});
+    const second = await collectJob(job({ mode: "items" }), result);
+    expect(second.status).toBe("done");
+    expect(second.items).toHaveLength(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("reconcileJob", () => {
