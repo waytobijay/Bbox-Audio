@@ -42,6 +42,11 @@ jobs:
       - name: Import the renderer
         run: python -c "from backend.voiceforge_render import create_render_app; print('render module imports cleanly')"
 
+      - name: Import the language module
+        # Imported by voiceforge_server.py, which CI cannot import (needs
+        # torch). This is the only guard that it stays importable.
+        run: python -c "from backend.voiceforge_lang import plan_engine, ne_prepare; print('lang module imports cleanly')"
+
       - name: Run tests
         # Echo the failure as a workflow annotation as well as to the log:
         # job logs need authentication to read, annotations do not, so a

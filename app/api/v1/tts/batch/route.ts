@@ -26,6 +26,19 @@ export const maxDuration = 60;
 const MAX_ITEMS = 250;
 const MAX_ITEM_CHARS = 2000;
 
+/** Same overrides the single-shot endpoint accepts, so both behave alike. */
+const paramsSchema = z
+  .object({
+    seed: z.number().int().min(0).max(2 ** 31).optional(),
+    exaggeration: z.number().min(0).max(2).optional(),
+    cfg: z.number().min(0).max(1).optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    model: z.enum(["chatterbox", "qwen3"]).optional(),
+    /** Overrides the language profile's engine for this one request. */
+    engine: z.string().min(1).max(40).optional(),
+  })
+  .optional();
+
 const schema = z.object({
   items: z
     .array(z.object({ text: z.string().min(1).max(MAX_ITEM_CHARS) }))
@@ -34,6 +47,7 @@ const schema = z.object({
   voice_id: z.string().max(120).optional(),
   language: z.string().min(2).max(12).optional(),
   format: z.enum(["mp3", "wav"]).optional(),
+  params: paramsSchema,
   callback_url: z.string().url().max(2000).optional(),
 });
 
@@ -92,7 +106,7 @@ export async function POST(req: Request) {
         format: body.format ?? "mp3",
         source: auth.key.id,
         callbackUrl: body.callback_url,
-        params: { ...DEFAULT_PARAMS, language },
+        params: { ...DEFAULT_PARAMS, ...body.params, language },
       },
       appUrlFrom(req)
     );

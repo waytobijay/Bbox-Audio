@@ -7,6 +7,10 @@ import type { GenParams, ModelId } from "./types";
 export const LANGUAGES: Array<{ code: string; name: string }> = [
   { code: "en", name: "English" },
   { code: "hi", name: "Hindi — हिन्दी" },
+  // Not one of Chatterbox's 23 languages. It has a profile in
+  // lib/languageProfiles.ts that picks a Nepali model when one is configured
+  // and falls back to Hindi, which shares the script, when none is.
+  { code: "ne", name: "Nepali — नेपाली" },
   { code: "ar", name: "Arabic" },
   { code: "zh", name: "Chinese" },
   { code: "da", name: "Danish" },

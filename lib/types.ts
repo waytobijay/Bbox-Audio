@@ -215,6 +215,16 @@ export interface LibraryVoice {
   name: string;
   /** ISO 639-1, passed through to Chatterbox as language_id. */
   language: string;
+  /**
+   * Optional per-voice synthesis overrides. Beaten by a request's own params,
+   * beats the language profile. Absent for every voice unless set by hand.
+   */
+  synth?: {
+    engine?: string;
+    exaggeration?: number;
+    cfg?: number;
+    temperature?: number;
+  };
   /** Exact words spoken in the clip. Required by Qwen3, helps Chatterbox. */
   transcript: string;
   /** Public Blob URL of the reference clip (always 16-bit PCM WAV). */

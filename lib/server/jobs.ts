@@ -18,6 +18,7 @@
  */
 
 import { after } from "next/server";
+import { resolveSynthesis } from "@/lib/languageProfiles";
 import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
 import { backendHeaders, recordHealthFacts, usableBackends } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
@@ -71,6 +72,12 @@ export interface Job {
   /** Served by the render backend, not Blob — see lib/server/videojobs.ts. */
   videoUrl?: string;
   videoBytes?: number;
+  /**
+   * Which engine actually produced the audio — the profile's own, or its
+   * fallback. Recorded so a silently substituted model is visible rather
+   * than something you only notice by ear.
+   */
+  engineUsed?: string;
   /** 0-100 while rendering, so a long job isn't a black box. */
   progress?: number;
   stage?: string;
@@ -290,9 +297,33 @@ export async function createAndDispatchJob(
   await saveJob(job);
   await indexJob(id);
 
+  // Request params beat the voice's own overrides, which beat the language
+  // profile, which beats the tuned defaults. A language with no profile comes
+  // out of this exactly as it went in.
+  // params is a loose bag on the way through, so each field is narrowed
+  // here rather than trusted — a caller sending cfg: "loud" must not reach
+  // the model as a string.
+  const p = input.params ?? {};
+  const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+  const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+  const synth = resolveSynthesis({
+    language: str(p.language) ?? voice.language,
+    voice: voice.synth,
+    request: {
+      engine: str(p.engine),
+      exaggeration: num(p.exaggeration),
+      cfg: num(p.cfg),
+      temperature: num(p.temperature),
+    },
+  });
+
   const body = {
     job_id: id,
     voice_id: input.voiceId,
+    // The backend picks between these two: it is the only place that knows
+    // whether the primary model actually loaded, and it reports which it used.
+    engine: synth.engine,
+    fallback: synth.fallback,
     // Carry the clip with the job so the backend can cache it ITSELF inside
     // its background worker. That worker has no deadline; this request does
     // (Vercel kills it at 60s), and a cold Modal container can eat 30s before
@@ -307,7 +338,13 @@ export async function createAndDispatchJob(
       : undefined,
     chunks: input.chunks,
     paragraph_breaks: input.paragraphBreaks,
-    params: input.params,
+    params: {
+      ...input.params,
+      language: synth.modelLanguage,
+      exaggeration: synth.exaggeration,
+      cfg: synth.cfg,
+      temperature: synth.temperature,
+    },
     format: input.format,
     mode: input.mode,
     callback_url: `${appUrl.replace(/\/+$/, "")}/api/internal/jobs/${id}/complete`,
@@ -377,6 +414,8 @@ interface BackendItem {
 
 export interface BackendResult {
   status: string;
+  /** Which engine the backend actually ran, after any fallback. */
+  engine_used?: string;
   mode?: JobMode;
   format?: "mp3" | "wav";
   duration?: number;
@@ -471,6 +510,7 @@ async function collectLocked(job: Job, result: BackendResult): Promise<Job> {
     format,
     duration: result.duration,
     genSeconds: result.gen_seconds,
+    engineUsed: result.engine_used,
     items,
     // A stitched job has exactly one file; expose it directly so the common
     // case is `audio_url` and callers never index into a list of one.

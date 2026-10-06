@@ -33,6 +33,8 @@ const paramsSchema = z
     cfg: z.number().min(0).max(1).optional(),
     temperature: z.number().min(0).max(2).optional(),
     model: z.enum(["chatterbox", "qwen3"]).optional(),
+    /** Overrides the language profile's engine for this one request. */
+    engine: z.string().min(1).max(40).optional(),
   })
   .optional();
 

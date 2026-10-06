@@ -346,6 +346,91 @@ export function ApiDocs({ appUrl }: { appUrl: string }) {
       </Section>
 
       <Section
+        title="Languages and engines"
+        description="Nepali, per-request overrides, and knowing which model actually ran."
+      >
+        <p className="mb-3">
+          Most languages run on the multilingual Chatterbox checkpoint and are unaffected by any
+          of this. A language with a <em>profile</em> can ask for a different engine and different
+          pacing. Today only <code className="font-mono text-[12px]">ne</code> (Nepali) has one,
+          because Nepali is not among Chatterbox&apos;s 23 languages.
+        </p>
+        <p className="mb-3">
+          Settings resolve strongest-first:{" "}
+          <strong>request params → the voice&apos;s own overrides → the language profile → the
+          tuned defaults</strong>. A language with no profile therefore behaves exactly as it
+          always has.
+        </p>
+        <Snippet
+          code={`POST /api/v1/tts
+{
+  "text": "आजको समयमा प्रविधि हाम्रो जीवनको महत्वपूर्ण हिस्सा बनिसकेको छ।",
+  "voice_id": "bijay-nepali-522a299a",
+  "language": "ne",
+  "params": { "engine": "chatterbox-ne", "cfg": 0.3 }   // all optional
+}`}
+        />
+        <p className="mt-3">
+          Accepted in <code className="font-mono text-[12px]">params</code> on{" "}
+          <code className="font-mono text-[12px]">/api/v1/tts</code> and{" "}
+          <code className="font-mono text-[12px]">/api/v1/tts/batch</code>:{" "}
+          <code className="font-mono text-[12px]">engine</code>,{" "}
+          <code className="font-mono text-[12px]">exaggeration</code>,{" "}
+          <code className="font-mono text-[12px]">cfg</code>,{" "}
+          <code className="font-mono text-[12px]">temperature</code>,{" "}
+          <code className="font-mono text-[12px]">seed</code>,{" "}
+          <code className="font-mono text-[12px]">model</code>. Plus{" "}
+          <code className="font-mono text-[12px]">language</code> at the top level.
+        </p>
+
+        <p className="mt-4 mb-2 font-medium text-ink">Nepali, honestly</p>
+        <p className="mb-3">
+          There is no settled public Nepali Chatterbox checkpoint, so the{" "}
+          <code className="font-mono text-[12px]">chatterbox-ne</code> engine is wired but{" "}
+          <strong>unconfigured by default</strong>. Until a model is pointed at it, every Nepali
+          job falls back to Hindi — which shares the script — at a slower, flatter setting
+          (<code className="font-mono text-[12px]">cfg 0.3</code>,{" "}
+          <code className="font-mono text-[12px]">exaggeration 0.4</code>), because Nepali read
+          with Hindi prosody otherwise rushes. Set{" "}
+          <code className="font-mono text-[12px]">VOICEFORGE_NE_MODEL</code> on the backend to a
+          HuggingFace repo or local path and the primary engine starts being used. A model that
+          will not load logs a warning and falls back rather than failing the job.
+        </p>
+
+        <p className="mt-4 mb-2 font-medium text-ink">Which engine ran</p>
+        <p className="mb-3">
+          A finished job reports <code className="font-mono text-[12px]">engine_used</code> —{" "}
+          <code className="font-mono text-[12px]">chatterbox-ne</code> when the Nepali model ran,{" "}
+          <code className="font-mono text-[12px]">fallback-hi</code> when it did not. A silent
+          substitution is otherwise only detectable by ear, in a language you may not speak.
+        </p>
+        <Snippet
+          code={`GET /api/v1/jobs/{job_id}
+{ "status": "done", "audio_url": "https://…", "engine_used": "fallback-hi" }`}
+        />
+
+        <p className="mt-4 mb-2 font-medium text-ink">Comparing by ear</p>
+        <Snippet
+          code={`POST /api/v1/tts/compare
+{ "text": "आजको समयमा प्रविधि…", "voice_id": "bijay-nepali-522a299a" }
+
+// -> two jobs to poll, one per engine
+{
+  "language": "ne",
+  "candidates": [
+    { "label": "chatterbox-ne", "job_id": "…", "status_url": "/api/v1/jobs/…" },
+    { "label": "fallback-hi",   "job_id": "…", "status_url": "/api/v1/jobs/…" }
+  ]
+}`}
+        />
+        <p className="mt-3">
+          Two jobs rather than two files, because synthesis is asynchronous everywhere else here.
+          Both count against your quota. A language with no fallback returns 400 —{" "}
+          there is nothing to compare it against.
+        </p>
+      </Section>
+
+      <Section
         title="Branded frames"
         description="Render the picture inside a window of your own overlay PNG."
       >

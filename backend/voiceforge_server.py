@@ -31,11 +31,29 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import threading
 import time
 import traceback
 import urllib.request
 from typing import Any, Dict, List, Optional
+
+# Importable both ways: as a package on Modal and in CI, and as loose files
+# in /content/backend on Colab and Kaggle.
+try:
+    from backend.voiceforge_lang import (
+        DEFAULT_ENGINE,
+        ne_expand_digits,
+        ne_prepare,
+        plan_engine,
+    )
+except ImportError:  # pragma: no cover - notebook layout
+    from voiceforge_lang import (
+        DEFAULT_ENGINE,
+        ne_expand_digits,
+        ne_prepare,
+        plan_engine,
+    )
 
 import numpy as np
 import soundfile as sf
@@ -147,6 +165,83 @@ def _stitch(parts: List[np.ndarray], sr: int, paragraph_breaks: List[bool]) -> n
 
 
 # ---------------------------------------------------------------------------
+# language engines
+# ---------------------------------------------------------------------------
+#
+# Every language has always run on the multilingual Chatterbox checkpoint.
+# A language whose sounds that checkpoint was never trained on — Nepali is the
+# first — can ask for an engine of its own. If that engine is not configured,
+# or will not load, the job runs on the fallback the gateway supplied and says
+# so, because a render in the wrong language that claims success is worse than
+# one that admits a substitution.
+
+# Unset by default. Point it at a HuggingFace repo or a local path holding a
+# Nepali checkpoint and the "ne" profile starts using it; leave it unset and
+# Nepali runs on the Hindi fallback. Deliberately not hardcoded: there is no
+# settled public Nepali Chatterbox checkpoint, and baking in a repo that 404s
+# would cost every Nepali job a failed download before falling back anyway.
+NE_MODEL = os.environ.get("VOICEFORGE_NE_MODEL", "").strip()
+
+# Engines that failed to load once. Retrying a missing download on every chunk
+# of a 100-scene job would add minutes and change nothing.
+_ENGINE_FAILED: Dict[str, str] = {}
+
+
+def _load_ne_model():
+    """Load the Nepali checkpoint, or raise. At most once per process."""
+    if not NE_MODEL:
+        raise RuntimeError("no Nepali model configured (set VOICEFORGE_NE_MODEL)")
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa: PLC0415
+
+    return ChatterboxMultilingualTTS.from_pretrained(
+        NE_MODEL, device="cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+
+def engine_available(engine: str) -> bool:
+    """Is this engine usable right now? Never raises, never retries a known
+    failure, and never blocks the languages that do not need it."""
+    if engine in _ENGINE_FAILED:
+        return False
+    if engine == "chatterbox-ne":
+        if "chatterbox-ne" in MODELS:
+            return True
+        if not NE_MODEL:
+            _ENGINE_FAILED[engine] = "VOICEFORGE_NE_MODEL is not set"
+            print("[engine] chatterbox-ne unavailable: no model configured", flush=True)
+            return False
+        try:
+            MODELS["chatterbox-ne"] = _load_ne_model()
+            print(f"[engine] chatterbox-ne ready ({NE_MODEL})", flush=True)
+            return True
+        except Exception as e:  # noqa: BLE001
+            _ENGINE_FAILED[engine] = str(e)[:200]
+            print(f"[engine] chatterbox-ne failed to load: {e}", flush=True)
+            return False
+    _ENGINE_FAILED[engine] = "unknown engine"
+    return False
+
+
+def resolve_engine(
+    engine: Optional[str],
+    fallback: Optional[Dict[str, Any]],
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """plan_engine, with this process's real model availability."""
+    return plan_engine(
+        engine,
+        fallback,
+        params,
+        engine_available,
+        {
+            "exaggeration": DEFAULT_EXAGGERATION,
+            "cfg": DEFAULT_CFG,
+            "temperature": DEFAULT_TEMPERATURE,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # generation
 # ---------------------------------------------------------------------------
 
@@ -156,6 +251,7 @@ def _generate_chunk(
     model: str = "chatterbox",
     seed: int = 0,
     language: str = "en",
+    engine: str = DEFAULT_ENGINE,
     exaggeration: float = DEFAULT_EXAGGERATION,
     cfg: float = DEFAULT_CFG,
     temperature: float = DEFAULT_TEMPERATURE,
@@ -169,7 +265,12 @@ def _generate_chunk(
     ref = VOICES[voice_id]
     t0 = time.time()
 
-    if model == "chatterbox":
+    # A language engine selects a different loaded checkpoint; the generation
+    # call itself is identical, which is why nothing else here changes.
+    if engine == "chatterbox-ne" and "chatterbox-ne" in MODELS:
+        model = "chatterbox-ne"
+
+    if model in ("chatterbox", "chatterbox-ne"):
         import inspect
 
         kwargs = {
@@ -179,11 +280,11 @@ def _generate_chunk(
             "cfg_weight": float(cfg),
             "temperature": float(temperature),
         }
-        accepted = inspect.signature(MODELS["chatterbox"].generate).parameters
+        accepted = inspect.signature(MODELS[model].generate).parameters
         kwargs = {k: v for k, v in kwargs.items() if k in accepted}
-        wav = MODELS["chatterbox"].generate(text, **kwargs)
+        wav = MODELS[model].generate(text, **kwargs)
         audio = wav.squeeze(0).cpu().numpy()
-        sr = MODELS["chatterbox"].sr
+        sr = MODELS[model].sr
     else:
         wavs, out_sr = MODELS["qwen3"].generate_voice_clone(
             text=text, language="English", ref_audio=ref["path"], ref_text=ref.get("transcript") or None
@@ -269,6 +370,25 @@ def _run_job(job: Dict[str, Any]) -> None:
                 voice_meta.get("language", "en"),
             )
 
+        # Which engine actually runs. Decided once per job, not per chunk, so
+        # a 100-scene narration cannot change voice halfway through.
+        plan = resolve_engine(job.get("engine"), job.get("fallback"), params)
+        with _JOB_LOCK:
+            JOBS[job_id]["engine_used"] = plan["engine_used"]
+        if plan["engine_used"] != plan["engine"] or plan["engine"] != job.get("engine", plan["engine"]):
+            print(f"[job] {job_id} engine={plan['engine']} lang={plan['language']} used={plan['engine_used']}", flush=True)
+
+        # Nepali prep. Applied whenever the *request* asked for Nepali, not
+        # only when a Nepali model ran: the text is Nepali either way, and
+        # digits read as English numerals would be wrong on the fallback too.
+        if str(params.get("language", "")).lower() == "ne" or plan["engine"] == "chatterbox-ne":
+            if mode == "items":
+                # One audio file per input line is the contract here, so the
+                # count must not change — expand digits, but never re-split.
+                chunks = [ne_expand_digits(c) for c in chunks]
+            else:
+                chunks = [c for ch in chunks for c in ne_prepare(ch)] or chunks
+
         with _GPU_LOCK:
             _BUSY = True
             for i, text in enumerate(chunks):
@@ -277,10 +397,11 @@ def _run_job(job: Dict[str, Any]) -> None:
                     job["voice_id"],
                     model=params.get("model", "chatterbox"),
                     seed=int(params.get("seed", 0)) + i,
-                    language=params.get("language", "en"),
-                    exaggeration=float(params.get("exaggeration", DEFAULT_EXAGGERATION)),
-                    cfg=float(params.get("cfg", DEFAULT_CFG)),
-                    temperature=float(params.get("temperature", DEFAULT_TEMPERATURE)),
+                    language=plan["language"],
+                    exaggeration=plan["exaggeration"],
+                    cfg=plan["cfg"],
+                    temperature=plan["temperature"],
+                    engine=plan["engine"],
                 )
                 rendered.append(audio)
                 with _JOB_LOCK:
@@ -318,6 +439,9 @@ def _run_job(job: Dict[str, Any]) -> None:
             "sample_rate": sr,
             "gen_seconds": round(time.time() - t0, 2),
             "duration": round(sum(i["duration"] for i in items), 2),
+            # Which engine really ran, so a fallback is visible in the result
+            # rather than only audible in the output.
+            "engine_used": plan["engine_used"],
             "items": items,
         }
         with _JOB_LOCK:
