@@ -39,6 +39,18 @@ const DEFAULT_PRIORITY: Record<BackendProvider, number> = {
   modal: 3,
 };
 
+/**
+ * The standard routing order, fixed on purpose: free notebooks first (Colab,
+ * then Kaggle), then a custom URL, and Modal last because it bills per second.
+ * Every job walks this list and takes the first backend that accepts it, so
+ * Modal only ever runs when Colab and Kaggle are both down or refuse the job.
+ */
+export const STANDARD_ORDER: readonly BackendProvider[] = ["colab", "kaggle", "custom", "modal"];
+const rank = (p: BackendProvider) => {
+  const i = STANDARD_ORDER.indexOf(p);
+  return i < 0 ? STANDARD_ORDER.length : i;
+};
+
 export function computeHealth(b: RegisteredBackend, now = Date.now()): BackendHealthKind {
   if (!b.enabled) return "disabled";
 
@@ -75,7 +87,7 @@ export async function listBackends(): Promise<BackendView[]> {
   return rows
     .filter((r): r is RegisteredBackend => Boolean(r))
     .map((r) => toView(r, now))
-    .sort((a, b) => a.priority - b.priority);
+    .sort((a, b) => rank(a.provider) - rank(b.provider));
 }
 
 /**
@@ -137,31 +149,17 @@ export async function setActiveSelection(value: ActiveBackend): Promise<void> {
   await kvSet(ACTIVE_KEY, value);
 }
 
-/**
- * Resolve the backend a request should actually go to.
- *
- * "auto"  -> first enabled + online backend by priority. This IS the fallback
- *            behaviour: a dead Colab is simply skipped.
- * pinned  -> that provider, but only if usable; otherwise null so the caller
- *            reports a clear error instead of hanging on a dead tunnel.
- */
+/** The backend a request goes to first: the head of the standard order. */
 export async function resolveBackend(): Promise<BackendView | null> {
   return (await usableBackends())[0] ?? null;
 }
 
-/**
- * Every backend a TTS job may go to, best first. Under "auto" that is all of
- * them by priority, so a dispatch that fails on one (a Modal workspace that
- * was disabled, a tunnel that died between heartbeats) moves on to the next
- * instead of failing the job. A pin stays a pin: one candidate or none.
- */
+/** Every usable backend in the standard order; dispatch tries them in turn. */
 export async function usableBackends(): Promise<BackendView[]> {
-  const [selection, all] = await Promise.all([getActiveSelection(), listBackends()]);
-  const usable = (b: BackendView) => b.health === "online" || b.health === "busy";
-
-  if (selection === "auto") return all.filter(usable);
-  const pinned = all.find((b) => b.provider === selection);
-  return pinned && usable(pinned) ? [pinned] : [];
+  // Always the standard order (Colab -> Kaggle -> custom -> Modal), whatever
+  // is selected in Admin, so a stale pin can never put Modal first.
+  const all = await listBackends();
+  return all.filter((b) => b.health === "online" || b.health === "busy");
 }
 
 /**
@@ -175,15 +173,17 @@ export async function resolveRenderBackend(): Promise<{ backend: BackendView; ur
   return (await usableRenderBackends())[0] ?? null;
 }
 
-/** Every backend a render may go to, best first. Same failover rule as TTS. */
+/** Every render-capable backend in the standard order. */
 export async function usableRenderBackends(): Promise<Array<{ backend: BackendView; url: string }>> {
-  const [selection, all] = await Promise.all([getActiveSelection(), listBackends()]);
-  const usable = (b: BackendView) =>
-    (b.health === "online" || b.health === "busy") &&
-    (b.capabilities ?? ["tts"]).includes("render");
-
-  const candidates = selection === "auto" ? all : all.filter((b) => b.provider === selection);
-  return candidates.filter(usable).map((b) => ({ backend: b, url: b.renderUrl ?? b.url }));
+  // Same standard order as TTS.
+  const all = await listBackends();
+  return all
+    .filter(
+      (b) =>
+        (b.health === "online" || b.health === "busy") &&
+        (b.capabilities ?? ["tts"]).includes("render")
+    )
+    .map((b) => ({ backend: b, url: b.renderUrl ?? b.url }));
 }
 
 // --- auth for machine endpoints ------------------------------------------
