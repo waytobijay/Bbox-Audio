@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/Select";
 import {
   IconAlert,
   IconCheck,
+  IconLink,
   IconMic,
   IconRefresh,
   IconTrash,
@@ -349,6 +350,7 @@ function VoiceRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(voice.name);
+  const [copied, setCopied] = useState(false);
   const locked = busy !== null;
 
   return (
@@ -401,10 +403,34 @@ function VoiceRow({
             </div>
           )}
 
-          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
             <span>{languageName(voice.language)}</span>
             <span>{formatDuration(voice.durationSec)}</span>
-            <code className="font-mono text-[11.5px] text-faint">{voice.id}</code>
+            {/*
+              This string is what every API caller sends as voice_id, so it is
+              copied far more often than it is read. Leaving it as plain text
+              meant selecting an id with a random tail by hand, into n8n.
+            */}
+            <button
+              type="button"
+              title="Copy this voice_id"
+              onClick={() => {
+                void navigator.clipboard.writeText(voice.id);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface2 px-2 py-1 font-mono text-[11.5px] text-faint transition hover:border-brand-300 hover:text-ink"
+            >
+              {voice.id}
+              {copied ? (
+                <IconCheck className="h-3 w-3 text-brand-600" />
+              ) : (
+                <IconLink className="h-3 w-3" />
+              )}
+            </button>
+            {copied ? (
+              <span className="text-[11.5px] font-medium text-brand-600">Copied</span>
+            ) : null}
           </div>
 
           {voice.transcript ? (
