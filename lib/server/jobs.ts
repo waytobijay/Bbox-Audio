@@ -19,7 +19,7 @@
 
 import { after } from "next/server";
 import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
-import { backendHeaders, recordHealthFacts, resolveBackend } from "./backends";
+import { backendHeaders, recordHealthFacts, usableBackends } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
 import { getRedis, kvDel, kvGet, kvSet } from "./redis";
@@ -252,7 +252,8 @@ export async function createAndDispatchJob(
   input: CreateJobInput,
   appUrl: string
 ): Promise<Job> {
-  const backend = await resolveBackend();
+  const candidates = await usableBackends();
+  const backend = candidates[0];
   if (!backend) {
     throw new JobError(
       "No GPU backend is online. Start a notebook, or pick another backend in Admin → Backends.",
@@ -320,38 +321,47 @@ export async function createAndDispatchJob(
   // now, and a boot slower than the budget no longer fails a job the backend
   // went on to accept anyway.
   background(async () => {
-    try {
-      // Best-effort warm-up. If the backend is awake this saves it a
-      // download; if it's cold it gives up quietly, because the payload
-      // carries the clip and the worker caches it with no deadline.
-      await ensureVoiceCached(backend.url, input.voiceId, backend.provider);
-    } catch {
-      // Already non-fatal by design; the job below still carries the voice.
-    }
-    try {
-      const res = await fetch(`${backend.url}/jobs`, {
-        method: "POST",
-        headers: backendHeaders(),
-        body: JSON.stringify(body),
-        // Room for a cold container to boot, measured around 30s on Modal.
-        signal: AbortSignal.timeout(45_000),
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
+    // Under "auto" every usable backend is a candidate, best first. One that
+    // refuses the job (a disabled Modal workspace, a dead tunnel) is skipped,
+    // and the job only fails when none of them will take it.
+    const failures: string[] = [];
+    for (const target of candidates) {
+      const attempt: Job = { ...job, backend: target.provider, backendUrl: target.url };
+      try {
+        // Best-effort warm-up. If the backend is awake this saves it a
+        // download; if it's cold it gives up quietly, because the payload
+        // carries the clip and the worker caches it with no deadline.
+        await ensureVoiceCached(target.url, input.voiceId, target.provider);
+      } catch {
+        // Already non-fatal by design; the job below still carries the voice.
       }
-      await saveJob({ ...job, status: "running" });
-    } catch (e) {
-      // The caller is no longer listening, so the job record is the only
-      // place this can be reported. Pollers surface it as a failed job.
-      await saveJob({
-        ...job,
-        status: "error",
-        error: `Couldn't start the render on ${backend.provider}: ${
-          e instanceof Error ? e.message : "could not reach the backend"
-        }`,
-      });
+      try {
+        const res = await fetch(`${target.url}/jobs`, {
+          method: "POST",
+          headers: backendHeaders(),
+          body: JSON.stringify(body),
+          // Room for a cold container to boot, measured around 30s on Modal.
+          signal: AbortSignal.timeout(45_000),
+        });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
+        }
+        await saveJob({ ...attempt, status: "running" });
+        return;
+      } catch (e) {
+        failures.push(
+          `${target.provider}: ${e instanceof Error ? e.message : "could not reach the backend"}`
+        );
+      }
     }
+    // The caller is no longer listening, so the job record is the only
+    // place this can be reported. Pollers surface it as a failed job.
+    await saveJob({
+      ...job,
+      status: "error",
+      error: `Couldn't start the render on ${failures.join("; ")}`,
+    });
   });
 
   return job;

@@ -146,12 +146,22 @@ export async function setActiveSelection(value: ActiveBackend): Promise<void> {
  *            reports a clear error instead of hanging on a dead tunnel.
  */
 export async function resolveBackend(): Promise<BackendView | null> {
+  return (await usableBackends())[0] ?? null;
+}
+
+/**
+ * Every backend a TTS job may go to, best first. Under "auto" that is all of
+ * them by priority, so a dispatch that fails on one (a Modal workspace that
+ * was disabled, a tunnel that died between heartbeats) moves on to the next
+ * instead of failing the job. A pin stays a pin: one candidate or none.
+ */
+export async function usableBackends(): Promise<BackendView[]> {
   const [selection, all] = await Promise.all([getActiveSelection(), listBackends()]);
   const usable = (b: BackendView) => b.health === "online" || b.health === "busy";
 
-  if (selection === "auto") return all.find(usable) ?? null;
+  if (selection === "auto") return all.filter(usable);
   const pinned = all.find((b) => b.provider === selection);
-  return pinned && usable(pinned) ? pinned : null;
+  return pinned && usable(pinned) ? [pinned] : [];
 }
 
 /**
@@ -162,14 +172,18 @@ export async function resolveBackend(): Promise<BackendView | null> {
  * entirely rather than being sent a request it will 404.
  */
 export async function resolveRenderBackend(): Promise<{ backend: BackendView; url: string } | null> {
+  return (await usableRenderBackends())[0] ?? null;
+}
+
+/** Every backend a render may go to, best first. Same failover rule as TTS. */
+export async function usableRenderBackends(): Promise<Array<{ backend: BackendView; url: string }>> {
   const [selection, all] = await Promise.all([getActiveSelection(), listBackends()]);
   const usable = (b: BackendView) =>
     (b.health === "online" || b.health === "busy") &&
     (b.capabilities ?? ["tts"]).includes("render");
 
   const candidates = selection === "auto" ? all : all.filter((b) => b.provider === selection);
-  const found = candidates.find(usable);
-  return found ? { backend: found, url: found.renderUrl ?? found.url } : null;
+  return candidates.filter(usable).map((b) => ({ backend: b, url: b.renderUrl ?? b.url }));
 }
 
 // --- auth for machine endpoints ------------------------------------------

@@ -8,7 +8,7 @@
  */
 
 import type { Asset, VideoChapterSpan, VideoScene } from "@/lib/types";
-import { backendHeaders, resolveRenderBackend } from "./backends";
+import { backendHeaders, usableRenderBackends } from "./backends";
 import { pickAssets } from "./assets";
 import { JobError, callbackToken, saveJob, type Job } from "./jobs";
 import { kvGet, kvSet } from "./redis";
@@ -135,7 +135,8 @@ export async function createAndDispatchRender(
 ): Promise<Job> {
   assertFramesFit(input.scenes, input.width, input.height);
 
-  const target = await resolveRenderBackend();
+  const targets = await usableRenderBackends();
+  const target = targets[0];
   if (!target) {
     throw new JobError(
       "No backend can render video right now. Start a notebook, or deploy the Modal render function.",
@@ -206,33 +207,32 @@ export async function createAndDispatchRender(
     callback_token: await callbackToken(id),
   };
 
-  try {
-    const res = await fetch(`${target.url}/render`, {
-      method: "POST",
-      headers: backendHeaders(),
-      body: JSON.stringify(body),
-      // Long enough for a cold container to boot; the render itself happens
-      // in the backend's own worker, so this only covers acceptance.
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
+  // Under "auto" every render-capable backend is a candidate, best first, so
+  // one that refuses (a disabled Modal workspace, a dead tunnel) is skipped.
+  const failures: string[] = [];
+  for (const t of targets) {
+    try {
+      const res = await fetch(`${t.url}/render`, {
+        method: "POST",
+        headers: backendHeaders(),
+        body: JSON.stringify(body),
+        // Long enough for a cold container to boot; the render itself happens
+        // in the backend's own worker, so this only covers acceptance.
+        signal: AbortSignal.timeout(45_000),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
+      }
+      return saveJob({ ...job, backend: t.backend.provider, backendUrl: t.url, status: "running" });
+    } catch (e) {
+      failures.push(
+        `${t.backend.provider}: ${e instanceof Error ? e.message : "could not reach the render backend"}`
+      );
     }
-  } catch (e) {
-    job = await saveJob({
-      ...job,
-      status: "error",
-      error: e instanceof Error ? e.message : "could not reach the render backend",
-    });
-    throw new JobError(
-      `Couldn't start the render on ${target.backend.provider}: ${job.error}`,
-      502,
-      "dispatch_failed"
-    );
   }
-
-  return saveJob({ ...job, status: "running" });
+  job = await saveJob({ ...job, status: "error", error: failures.join("; ") });
+  throw new JobError(`Couldn't start the render on ${job.error}`, 502, "dispatch_failed");
 }
 
 /**

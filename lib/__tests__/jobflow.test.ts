@@ -37,10 +37,12 @@ vi.mock("../server/blob", () => ({
 }));
 
 let activeBackend: unknown = null;
+let fallbackBackends: unknown[] = [];
 
 vi.mock("../server/backends", () => ({
   backendHeaders: () => ({ "Content-Type": "application/json", "X-Backend-Secret": "s" }),
   resolveBackend: async () => activeBackend,
+  usableBackends: async () => (activeBackend ? [activeBackend, ...fallbackBackends] : []),
 }));
 
 const libraryVoice = {
@@ -270,7 +272,30 @@ describe("createAndDispatchJob — dispatch happens after the response", () => {
 
   beforeEach(() => {
     activeBackend = { provider: "colab", url: "https://gpu.test", health: "online" };
+    fallbackBackends = [];
     voiceExists = true;
+  });
+
+  it("moves on to the next backend when the first refuses the job (a disabled Modal workspace)", async () => {
+    activeBackend = { provider: "modal", url: "https://modal.test", health: "online" };
+    fallbackBackends = [{ provider: "kaggle", url: "https://kaggle.test", health: "online" }];
+    const fn = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.startsWith("https://modal.test/jobs"))
+        return { ok: false, status: 404, json: async () => ({}), text: async () => "workspace is disabled" };
+      if (href.startsWith("https://kaggle.test/jobs"))
+        return { ok: true, status: 200, json: async () => ({ accepted: true }), text: async () => "" };
+      return { ok: true, status: 200, json: async () => ({ voices_cached: ["me-1234"] }), text: async () => "" };
+    });
+    vi.stubGlobal("fetch", fn);
+
+    const job = await createAndDispatchJob(dispatchInput, "https://app.test");
+    await flushPending();
+
+    const saved = await getJob(job.id);
+    expect(saved?.status).toBe("running");
+    expect(saved?.backend).toBe("kaggle");
+    expect(saved?.backendUrl).toBe("https://kaggle.test");
   });
 
   it("pushes the voice when the backend doesn't have it yet", async () => {
