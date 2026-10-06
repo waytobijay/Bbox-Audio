@@ -214,7 +214,8 @@ Nothing here touches the TTS flow — the Studio tab works exactly as before whe
 - **The backend URL changes every session.** By design — it's a fresh tunnel each time. You don't see it: the notebook registers it for you.
 - **The Colab tab must stay open** while you generate.
 - **Your voice sample never leaves your control.** It goes from your browser to *your* Vercel Blob store, and from there to *your* GPU session. Not to Anthropic, not to any TTS company.
-- **Languages:** the backend runs Chatterbox Multilingual — 23 languages including English and Hindi (pick one in Model controls). **Nepali is not supported by the model yet**; Hindi is the closest option. Number expansion ("15GB" → "fifteen gigabytes") only applies to English scripts; other languages keep digits for the model to read in-language.
+- **Languages:** the backend runs Chatterbox Multilingual — 23 languages including English and Hindi (pick one in Model controls). Number expansion ("15GB" → "fifteen gigabytes") only applies to English scripts; other languages keep digits for the model to read in-language.
+- **Nepali** is *not* one of those 23. Picking it gives you a **language profile**: VoiceForge tries a Nepali-specific engine and, when none is configured, renders on Hindi — same script, slower and flatter pacing so it stops rushing. Every job reports `engine_used` (`chatterbox-ne` or `fallback-hi`) so you can always tell which ran, and `POST /api/v1/tts/compare` renders one line both ways to judge by ear. To use a real Nepali checkpoint, set `VOICEFORGE_NE_MODEL` on the backend to a HuggingFace repo or local path; a model that will not load logs a warning and falls back rather than failing the job. Be straight with yourself about the result: Hindi phonology on Nepali text is intelligible, not correct.
 
 ---
 
