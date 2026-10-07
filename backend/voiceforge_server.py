@@ -188,6 +188,10 @@ def _stitch(parts: List[np.ndarray], sr: int, paragraph_breaks: List[bool]) -> n
 # mirrors; set VOICEFORGE_NE_FILE and HF_TOKEN once one is approved.
 NE_MODEL = os.environ.get("VOICEFORGE_NE_MODEL", "").strip()
 NE_FILE = os.environ.get("VOICEFORGE_NE_FILE", "t3_nepali_epoch_20.pt").strip()
+# The language token handed to the library when the Nepali engine runs. The
+# fine-tune is Devanagari and the library has no "ne", so "hi" selects the
+# right conditioning; the Nepali pronunciation comes from the T3 weights.
+NE_LANGUAGE_ID = os.environ.get("VOICEFORGE_NE_LANG_ID", "hi").strip() or "hi"
 
 # Engines that failed to load once. Retrying a missing download on every chunk
 # of a 100-scene job would add minutes and change nothing.
@@ -380,6 +384,12 @@ def _generate_chunk(
     # call itself is identical, which is why nothing else here changes.
     if engine == "chatterbox-ne" and "chatterbox-ne" in MODELS:
         model = "chatterbox-ne"
+        # The library validates language_id against its own 23-language list,
+        # which has no "ne", and refuses the call outright. The Nepali-ness is
+        # in the fine-tuned T3 weights, not in this token — it only selects
+        # conditioning — so the Devanagari language the library does accept is
+        # what gets passed. The weights still produce Nepali.
+        language = NE_LANGUAGE_ID
 
     if model in ("chatterbox", "chatterbox-ne"):
         import inspect
