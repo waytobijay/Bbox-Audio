@@ -28,6 +28,24 @@ const schema = z.object({
   duration: z.number().optional(),
   gen_seconds: z.number().optional(),
   sample_rate: z.number().optional(),
+  /**
+   * Which engine really ran. Absent from this schema, zod stripped it before
+   * the job record ever saw it — so a substituted model reported itself
+   * faithfully all the way to here and then vanished.
+   */
+  engine_used: z.string().max(60).optional(),
+  /** Scene timings for a video render, same journey. */
+  timeline: z
+    .array(
+      z.object({
+        index: z.number().int(),
+        // Defaulted, so a backend that predates the label still parses.
+        kind: z.enum(["intro", "scene", "outro"]).default("scene"),
+        start: z.number(),
+        end: z.number(),
+      })
+    )
+    .optional(),
   items: z
     .array(
       z.object({
