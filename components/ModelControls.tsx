@@ -170,7 +170,8 @@ export function ModelControls() {
           ))}
         </Select>
         <p className="mt-1.5 text-[11.5px] leading-snug text-faint">
-          Nepali isn't in the models yet — Hindi is the closest option.
+          Nepali uses a separate fine-tuned model, loaded on first use. If it
+          cannot be loaded the job falls back to Hindi and says so.
         </p>
       </div>
 

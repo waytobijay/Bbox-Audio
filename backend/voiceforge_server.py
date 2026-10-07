@@ -680,6 +680,10 @@ def create_app(provider: str = "custom", with_render: bool = True) -> FastAPI:
         _check(x_backend_secret)
         p = await request.json()
         try:
+            # Same engine resolution as the job worker. Without it the studio
+            # sent language "ne" to a model that has no such language and got
+            # a hard 500, while the identical text through a job spoke Nepali.
+            plan = resolve_engine(p.get("engine"), p.get("fallback"), p)
             with _GPU_LOCK:
                 _BUSY = True
                 audio, sr, gen_seconds = _generate_chunk(
@@ -687,10 +691,11 @@ def create_app(provider: str = "custom", with_render: bool = True) -> FastAPI:
                     p["voice_id"],
                     model=p.get("model", "chatterbox"),
                     seed=int(p.get("seed", 0)),
-                    language=p.get("language", "en"),
-                    exaggeration=float(p.get("exaggeration", DEFAULT_EXAGGERATION)),
-                    cfg=float(p.get("cfg", DEFAULT_CFG)),
-                    temperature=float(p.get("temperature", DEFAULT_TEMPERATURE)),
+                    language=plan["language"],
+                    exaggeration=plan["exaggeration"],
+                    cfg=plan["cfg"],
+                    temperature=plan["temperature"],
+                    engine=plan["engine"],
                 )
                 _BUSY = False
         except KeyError:

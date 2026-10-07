@@ -85,7 +85,7 @@ export function SettingsForm({
         </Select>
       </Field>
 
-      <Field label="Default language" hint="Nepali isn't supported by the models; Hindi is closest.">
+      <Field label="Default language" hint="Nepali uses its own fine-tuned model, with a Hindi fallback.">
         <Select
           value={values.defaultLanguage}
           onChange={(e) => patch({ defaultLanguage: e.target.value })}

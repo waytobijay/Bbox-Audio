@@ -11,6 +11,7 @@
  *    Colab restart" true, with no re-cloning anywhere in the UI.
  */
 
+import { resolveSynthesis } from "@/lib/languageProfiles";
 import type { LibraryVoice, ModelId } from "@/lib/types";
 import { backendHeaders, recordJobUsage, resolveBackend, updateBackend } from "./backends";
 import { resolveVoice } from "./voices";
@@ -119,15 +120,31 @@ export async function gatewayGenerate(
       : NO_VOICE;
   }
 
+  // The same resolution the job path uses. The studio used to build its own
+  // payload and skip this, so a Nepali voice worked through a job and failed
+  // here with "Unsupported language_id" — the one model that can say it was
+  // never asked for.
+  const synth = resolveSynthesis({
+    language: input.language ?? voice.language,
+    voice: voice.synth,
+    request: {
+      exaggeration: input.exaggeration,
+      cfg: input.cfg,
+      temperature: input.temperature,
+    },
+  });
+
   const payload = {
     text: input.text,
     voice_id: voice.id,
     model: input.model ?? "chatterbox",
     seed: input.seed ?? 0,
-    language: input.language ?? voice.language,
-    ...(input.exaggeration !== undefined ? { exaggeration: input.exaggeration } : {}),
-    ...(input.cfg !== undefined ? { cfg: input.cfg } : {}),
-    ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    language: synth.modelLanguage,
+    engine: synth.engine,
+    fallback: synth.fallback,
+    exaggeration: synth.exaggeration,
+    cfg: synth.cfg,
+    temperature: synth.temperature,
     ...(input.stylePrompt ? { style_prompt: input.stylePrompt } : {}),
   };
 
