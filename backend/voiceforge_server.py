@@ -46,6 +46,7 @@ try:
         ne_expand_digits,
         ne_prepare,
         plan_engine,
+        strip_state_prefixes,
     )
 except ImportError:  # pragma: no cover - notebook layout
     from voiceforge_lang import (
@@ -53,6 +54,7 @@ except ImportError:  # pragma: no cover - notebook layout
         ne_expand_digits,
         ne_prepare,
         plan_engine,
+        strip_state_prefixes,
     )
 
 import numpy as np
@@ -175,12 +177,17 @@ def _stitch(parts: List[np.ndarray], sr: int, paragraph_breaks: List[bool]) -> n
 # so, because a render in the wrong language that claims success is worse than
 # one that admits a substitution.
 
-# Unset by default. Point it at a HuggingFace repo or a local path holding a
-# Nepali checkpoint and the "ne" profile starts using it; leave it unset and
-# Nepali runs on the Hindi fallback. Deliberately not hardcoded: there is no
-# settled public Nepali Chatterbox checkpoint, and baking in a repo that 404s
-# would cost every Nepali job a failed download before falling back anyway.
+# Unset by default. Point it at a HuggingFace repo holding a fine-tuned
+# Nepali T3 and the "ne" profile starts using it; leave it unset and Nepali
+# runs on the Hindi fallback. Deliberately not hardcoded: the published Nepali
+# checkpoints are mostly gated, and baking in a repo that 401s would cost
+# every Nepali job a failed download before falling back anyway.
+#
+# Known-working, ungated: officialuser/chatterbox-nepali (epoch-20 interim).
+# The better final weights (t3_mtl_nepali_final.safetensors) live in gated
+# mirrors; set VOICEFORGE_NE_FILE and HF_TOKEN once one is approved.
 NE_MODEL = os.environ.get("VOICEFORGE_NE_MODEL", "").strip()
+NE_FILE = os.environ.get("VOICEFORGE_NE_FILE", "t3_nepali_epoch_20.pt").strip()
 
 # Engines that failed to load once. Retrying a missing download on every chunk
 # of a 100-scene job would add minutes and change nothing.
@@ -188,14 +195,64 @@ _ENGINE_FAILED: Dict[str, str] = {}
 
 
 def _load_ne_model():
-    """Load the Nepali checkpoint, or raise. At most once per process."""
+    """Base multilingual Chatterbox with a Nepali T3 swapped in.
+
+    The published Nepali work is a fine-tune of the T3 stage only — the voice
+    encoder and the S3 vocoder are unchanged, which is exactly why cloning
+    still works. So this is not a from_pretrained of a whole checkpoint: those
+    repos ship one weights file and nothing else, and from_pretrained would
+    fail looking for the rest.
+    """
     if not NE_MODEL:
         raise RuntimeError("no Nepali model configured (set VOICEFORGE_NE_MODEL)")
-    from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa: PLC0415
 
-    return ChatterboxMultilingualTTS.from_pretrained(
-        NE_MODEL, device="cuda" if torch.cuda.is_available() else "cpu"
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa: PLC0415
+    from huggingface_hub import hf_hub_download  # noqa: PLC0415
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+
+    path = (
+        NE_MODEL
+        if os.path.exists(NE_MODEL)
+        else hf_hub_download(
+            repo_id=NE_MODEL,
+            filename=NE_FILE,
+            # Only needed for a gated mirror; harmless when absent.
+            token=os.environ.get("HF_TOKEN") or None,
+        )
     )
+
+    if path.endswith(".safetensors"):
+        from safetensors.torch import load_file  # noqa: PLC0415
+
+        state = load_file(path, device="cpu")
+    else:
+        state = torch.load(path, map_location="cpu")
+        # Trainers wrap the weights in a checkpoint dict more often than not.
+        for key in ("model", "state_dict", "t3", "module"):
+            if isinstance(state, dict) and key in state and isinstance(state[key], dict):
+                state = state[key]
+                break
+
+    state = strip_state_prefixes(state)
+    missing, unexpected = model.t3.load_state_dict(state, strict=False)
+    matched = len(state) - len(unexpected)
+    # Loud on purpose. strict=False means a checkpoint whose keys do not match
+    # loads cleanly and changes nothing — the job would then run as ordinary
+    # multilingual Chatterbox while claiming to be the Nepali engine.
+    print(
+        f"[engine] nepali T3: matched {matched}/{len(state)} tensors "
+        f"(missing {len(missing)}, unexpected {len(unexpected)})",
+        flush=True,
+    )
+    if matched == 0:
+        raise RuntimeError(
+            f"{NE_FILE} matched no T3 parameters — wrong file or wrong architecture"
+        )
+
+    model.to(device)
+    return model
 
 
 def engine_available(engine: str) -> bool:

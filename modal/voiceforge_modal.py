@@ -45,6 +45,9 @@ image = (
         "numpy==1.26.4",
         "transformers==5.2.0",
         "safetensors==0.5.3",
+        # Fetches the Nepali T3 checkpoint at runtime; chatterbox pulls it in
+        # already, but the Nepali path depends on it directly.
+        "huggingface_hub",
     )
     .run_function(_bake_weights)
     .add_local_dir("backend", remote_path="/root/backend")
@@ -86,6 +89,11 @@ def api():
     import os
 
     os.environ.setdefault("VOICEFORGE_VOICES_DIR", VOICES_DIR)
+    # The Nepali engine. Ungated interim weights; the better final ones live
+    # in gated mirrors, so swap these two once access is granted and add an
+    # HF_TOKEN to the voiceforge-backend secret.
+    os.environ.setdefault("VOICEFORGE_NE_MODEL", "officialuser/chatterbox-nepali")
+    os.environ.setdefault("VOICEFORGE_NE_FILE", "t3_nepali_epoch_20.pt")
 
     import sys
 

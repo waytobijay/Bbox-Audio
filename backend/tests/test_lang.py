@@ -17,6 +17,7 @@ from backend.voiceforge_lang import (  # noqa: E402
     ne_prepare,
     ne_spell_number,
     plan_engine,
+    strip_state_prefixes,
 )
 
 NEVER = lambda _e: False      # noqa: E731 - nothing loads
@@ -134,3 +135,29 @@ class TestNepaliChunking:
         out = ne_prepare("सन् 2026 हो। अर्को वाक्य।")
         assert len(out) == 2
         assert "2026" not in " ".join(out)
+
+
+class TestStripStatePrefixes:
+    """A prefix mismatch is the silent failure mode: with strict=False nothing
+    loads, nothing complains, and the model quietly keeps its old weights."""
+
+    def test_strips_a_dataparallel_prefix(self):
+        assert strip_state_prefixes({"module.a": 1, "module.b": 2}) == {"a": 1, "b": 2}
+
+    def test_strips_a_t3_prefix(self):
+        assert strip_state_prefixes({"t3.x": 1}) == {"x": 1}
+
+    def test_leaves_already_clean_keys_alone(self):
+        assert strip_state_prefixes({"a": 1, "b": 2}) == {"a": 1, "b": 2}
+
+    def test_only_strips_when_every_key_shares_the_prefix(self):
+        # A genuine parameter called "model.something" must not be mangled
+        # just because one sibling happens to match.
+        mixed = {"module.a": 1, "b": 2}
+        assert strip_state_prefixes(mixed) == mixed
+
+    def test_handles_an_empty_state(self):
+        assert strip_state_prefixes({}) == {}
+
+    def test_strips_nested_wrappers_in_turn(self):
+        assert strip_state_prefixes({"module.t3.w": 1}) == {"w": 1}

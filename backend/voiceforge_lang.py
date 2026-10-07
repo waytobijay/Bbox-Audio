@@ -67,6 +67,20 @@ def plan_engine(
     return chosen
 
 
+def strip_state_prefixes(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalise checkpoint keys to what the target module expects.
+
+    Checkpoints get saved from wrappers — DataParallel adds "module.", saving
+    the whole TTS adds "t3." — and load_state_dict matches on exact names. A
+    prefix mismatch is silent: with strict=False nothing loads and nothing
+    complains, so the model runs on its original weights.
+    """
+    for prefix in ("module.", "t3.", "model."):
+        if state and all(k.startswith(prefix) for k in state):
+            state = {k[len(prefix):]: v for k, v in state.items()}
+    return state
+
+
 # ---------------------------------------------------------------------------
 # Nepali text preparation
 # ---------------------------------------------------------------------------
