@@ -551,7 +551,12 @@ export async function reconcileJob(job: Job): Promise<Job> {
       signal: AbortSignal.timeout(15_000),
     });
     if (res.status === 404) {
-      // The backend forgot it — a restarted Colab. Nothing is coming.
+      // A job still "queued" has not been dispatched yet — the POST that
+      // hands it to the backend runs after the response, and on a cold
+      // container it can take most of a minute. A 404 then means "not yet",
+      // not "gone", and killing it here raced our own dispatch. Only a job
+      // the backend once acknowledged can have been forgotten by a restart.
+      if (job.status === "queued") return job;
       return saveJob({
         ...job,
         status: "error",

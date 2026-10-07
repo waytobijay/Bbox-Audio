@@ -290,6 +290,10 @@ export async function reconcileRender(job: Job): Promise<Job> {
       signal: AbortSignal.timeout(15_000),
     });
     if (res.status === 404) {
+      // Not yet dispatched is not the same as forgotten — see the same guard
+      // in jobs.ts. Only a render the backend once acknowledged can be lost
+      // to a restart.
+      if (job.status === "queued") return job;
       return saveJob({
         ...job,
         status: "error",

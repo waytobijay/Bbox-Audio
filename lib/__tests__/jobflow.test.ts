@@ -411,6 +411,30 @@ describe("createAndDispatchJob — dispatch happens after the response", () => {
   });
 });
 
+describe("a queued job is not yet a lost job", () => {
+  /**
+   * Dispatch happens after the response, so a job sits in "queued" while the
+   * POST that hands it to the backend is still in flight — most of a minute on
+   * a cold container. The backend 404s for it during that window, and treating
+   * that as "the backend restarted" killed jobs that were about to start.
+   */
+  it("keeps waiting when the backend has never heard of a queued job", async () => {
+    routeFetch({ "/jobs/": { status: 404 } });
+    const queued = job({ status: "queued", createdAt: Date.now() });
+    const got = await reconcileJob(queued);
+    expect(got.status).toBe("queued");
+    expect(got.error).toBeUndefined();
+  });
+
+  it("still fails a running job the backend has forgotten", async () => {
+    // A restarted Colab really has lost it, and nothing is coming.
+    routeFetch({ "/jobs/": { status: 404 } });
+    const got = await reconcileJob(job({ status: "running", createdAt: Date.now() }));
+    expect(got.status).toBe("error");
+    expect(got.error).toMatch(/restarted/);
+  });
+});
+
 describe("reconcile stops chasing a dead job", () => {
   /**
    * The admin Jobs page polls while it's open. Each reconcile is a request to
