@@ -318,7 +318,8 @@ export async function createAndDispatchJob(
     request: {
       engine: str(p.engine),
       exaggeration: num(p.exaggeration),
-      cfg: num(p.cfg),
+      // cfg_weight is the name Chatterbox uses; both spellings accepted.
+      cfg: num(p.cfg) ?? num(p.cfg_weight),
       temperature: num(p.temperature),
     },
   });

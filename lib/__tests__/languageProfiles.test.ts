@@ -68,9 +68,11 @@ describe("the Nepali profile", () => {
   });
 
   it("uses its own pacing rather than the defaults", () => {
+    // More expressive than the narration defaults, with a lower cfg so the
+    // Nepali fine-tune commits to a delivery instead of flattening out.
     const got = resolveSynthesis({ language: "ne" });
-    expect(got.exaggeration).toBe(0.5);
-    expect(got.cfg).toBe(0.5);
+    expect(got.exaggeration).toBe(0.65);
+    expect(got.cfg).toBe(0.35);
     expect(got.temperature).toBe(0.8);
   });
 

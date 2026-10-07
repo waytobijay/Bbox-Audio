@@ -58,8 +58,11 @@ export const LANGUAGE_PROFILES: Record<string, LanguageProfile> = {
     // only if one is configured; otherwise it reports the fallback, because a
     // silent wrong-language render is worse than an honest substitution.
     engine: "chatterbox-ne",
-    exaggeration: 0.5,
-    cfg: 0.5,
+    // Tuned for the Nepali fine-tune specifically: more expressive than the
+    // narration defaults, with a lower cfg so it commits to the delivery
+    // instead of flattening into a read-aloud.
+    exaggeration: 0.65,
+    cfg: 0.35,
     temperature: 0.8,
     // Hindi shares Devanagari and is one of Chatterbox's 23 languages. The
     // pacing is deliberately slower and flatter than Hindi's own default:
