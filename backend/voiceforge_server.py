@@ -194,6 +194,57 @@ NE_FILE = os.environ.get("VOICEFORGE_NE_FILE", "t3_nepali_epoch_20.pt").strip()
 _ENGINE_FAILED: Dict[str, str] = {}
 
 
+def _grow_text_vocab(t3, state: Dict[str, Any]) -> None:
+    """Widen T3's text embedding and output head to the checkpoint's vocabulary.
+
+    A Nepali fine-tune adds graphemes the base multilingual tokenizer does not
+    have, so its text_emb and text_head are a row or two taller. PyTorch
+    refuses the whole state_dict over that single mismatch, which is why the
+    engine fell back to Hindi and the output never changed.
+
+    The extra ids are appended, so every existing token keeps its row and the
+    base tokenizer stays correct — the new rows are simply ones it will not
+    emit until the expanded tokenizer ships alongside the weights.
+    """
+    import torch.nn as nn  # noqa: PLC0415
+
+    want_rows = state.get("text_emb.weight")
+    if want_rows is None:
+        return
+    want = int(want_rows.shape[0])
+    have = int(t3.text_emb.weight.shape[0])
+    if want == have:
+        return
+    if want < have:
+        # Never shrink: that would drop tokens the base model can still emit.
+        raise RuntimeError(
+            f"checkpoint vocabulary ({want}) is smaller than the model's ({have})"
+        )
+
+    dim = int(t3.text_emb.weight.shape[1])
+    device = t3.text_emb.weight.device
+    dtype = t3.text_emb.weight.dtype
+
+    emb = nn.Embedding(want, dim, device=device, dtype=dtype)
+    with torch.no_grad():
+        emb.weight[:have] = t3.text_emb.weight
+    t3.text_emb = emb
+
+    head = getattr(t3, "text_head", None)
+    if head is not None and hasattr(head, "weight"):
+        new_head = nn.Linear(
+            dim, want, bias=getattr(head, "bias", None) is not None,
+            device=device, dtype=dtype,
+        )
+        with torch.no_grad():
+            new_head.weight[:have] = head.weight
+            if new_head.bias is not None and head.bias is not None:
+                new_head.bias[:have] = head.bias
+        t3.text_head = new_head
+
+    print(f"[engine] nepali T3: grew text vocabulary {have} -> {want}", flush=True)
+
+
 def _load_ne_model():
     """Base multilingual Chatterbox with a Nepali T3 swapped in.
 
@@ -236,6 +287,7 @@ def _load_ne_model():
                 break
 
     state = strip_state_prefixes(state)
+    _grow_text_vocab(model.t3, state)
     missing, unexpected = model.t3.load_state_dict(state, strict=False)
     matched = len(state) - len(unexpected)
     # Loud on purpose. strict=False means a checkpoint whose keys do not match
