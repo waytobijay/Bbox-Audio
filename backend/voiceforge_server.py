@@ -303,7 +303,9 @@ def _load_ne_model():
             f"{NE_FILE} matched no T3 parameters — wrong file or wrong architecture"
         )
 
-    model.to(device)
+    # No model.to(device) here: ChatterboxMultilingualTTS is a wrapper, not an
+    # nn.Module, so it has no .to(). from_pretrained already placed it, and the
+    # layers grown above are created on the same device and dtype.
     return model
 
 
