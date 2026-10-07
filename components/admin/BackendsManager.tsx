@@ -43,6 +43,9 @@ const HEALTH_STYLE: Record<BackendView["health"], { dot: string; text: string; l
   busy: { dot: "bg-live", text: "text-live", label: "Busy" },
   offline: { dot: "bg-faint", text: "text-faint", label: "Offline" },
   disabled: { dot: "bg-faint", text: "text-faint", label: "Disabled" },
+  // Amber, not green and not grey: it is enabled and will be used, but
+  // nothing has ever answered here, so it is a claim rather than a backend.
+  unverified: { dot: "bg-live", text: "text-live", label: "Unverified" },
 };
 
 /**
@@ -297,12 +300,32 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
                   {b.models.length ? <span>{b.models.join(", ")}</span> : null}
                   <span className="inline-flex items-center gap-1">
                     <IconClock className="h-3 w-3" />
-                    {ago(b.secondsSinceHeartbeat)}
+                    {/*
+                      A notebook heartbeats, so time-since-heartbeat is real
+                      liveness. A hand-added URL never does, so the only
+                      honest figure is when something last answered it.
+                    */}
+                    {b.selfRegistered === false
+                      ? b.secondsSinceReached === null
+                        ? "never reached"
+                        : `reached ${ago(b.secondsSinceReached)}`
+                      : ago(b.secondsSinceHeartbeat)}
                   </span>
                   {b.provider === "modal" && b.gpuSecondsMonth ? (
                     <span>{Math.round(b.gpuSecondsMonth / 60)} GPU-min this month</span>
                   ) : null}
                 </div>
+                {b.lastReachError ? (
+                  <p className="mt-2 text-[12px] text-live">
+                    Last attempt failed: {b.lastReachError}
+                  </p>
+                ) : null}
+                {b.selfRegistered === false && b.secondsSinceReached === null ? (
+                  <p className="mt-2 text-[12px] text-muted">
+                    Nothing has answered at this address yet. Press Test before relying on it —
+                    jobs will still be sent here when the notebooks are down.
+                  </p>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 {/* Reordering is how you say "only use Modal when the free

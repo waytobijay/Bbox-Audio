@@ -20,7 +20,12 @@
 import { after } from "next/server";
 import { resolveSynthesis } from "@/lib/languageProfiles";
 import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
-import { backendHeaders, recordHealthFacts, usableBackends } from "./backends";
+import {
+  backendHeaders,
+  recordHealthFacts,
+  recordUnreachable,
+  usableBackends,
+} from "./backends";
 import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
 import { getRedis, kvDel, kvGet, kvSet } from "./redis";
@@ -387,9 +392,12 @@ export async function createAndDispatchJob(
         await saveJob({ ...attempt, status: "running" });
         return;
       } catch (e) {
-        failures.push(
-          `${target.provider}: ${e instanceof Error ? e.message : "could not reach the backend"}`
-        );
+        const why = e instanceof Error ? e.message : "could not reach the backend";
+        // Put the reason on the backend card too. A hand-added URL never
+        // heartbeats, so without this a dead Modal workspace looks healthy
+        // right up to the moment a job is handed to it.
+        await recordUnreachable(target.provider, why).catch(() => {});
+        failures.push(`${target.provider}: ${why}`);
       }
     }
     // The caller is no longer listening, so the job record is the only

@@ -43,6 +43,10 @@ vi.mock("../server/backends", () => ({
   backendHeaders: () => ({ "Content-Type": "application/json", "X-Backend-Secret": "s" }),
   resolveBackend: async () => activeBackend,
   usableBackends: async () => (activeBackend ? [activeBackend, ...fallbackBackends] : []),
+  // Dispatch notes an unreachable backend on its registry row. A no-op here,
+  // but it must exist: leaving it out made every dispatch throw on an
+  // undefined call and silently stranded the job in "queued".
+  recordUnreachable: async () => {},
 }));
 
 const libraryVoice = {

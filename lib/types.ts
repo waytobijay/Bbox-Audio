@@ -151,7 +151,17 @@ export const BACKEND_PROVIDERS: BackendProvider[] = ["modal", "colab", "kaggle",
 /** "auto" picks the first enabled+online backend by priority. */
 export type ActiveBackend = "auto" | BackendProvider;
 
-export type BackendHealthKind = "online" | "busy" | "offline" | "disabled";
+export type BackendHealthKind =
+  | "online"
+  | "busy"
+  | "offline"
+  | "disabled"
+  /**
+   * Enabled, but nothing has ever answered at this address. Only reachable by
+   * a hand-added backend: a notebook proves itself by heartbeating, while a
+   * typed-in URL is just a claim until something responds to it.
+   */
+  | "unverified";
 
 /** What a backend sends when it registers itself / heartbeats. */
 export interface BackendRegistration {
@@ -190,12 +200,22 @@ export interface RegisteredBackend extends BackendRegistration {
   gpuSecondsMonth?: number;
   jobsToday?: number;
   lastError?: string;
+  /**
+   * When we last got a real answer from this address — a health probe or an
+   * accepted job. For Modal and custom URLs this is the only liveness
+   * evidence there is, because they never heartbeat.
+   */
+  lastReachedAt?: number;
+  /** Why the last attempt to reach it failed, if it did. */
+  lastReachError?: string;
 }
 
 /** Registry row plus the status computed at read time. */
 export interface BackendView extends RegisteredBackend {
   health: BackendHealthKind;
   secondsSinceHeartbeat: number;
+  /** null when nothing has ever answered here. */
+  secondsSinceReached: number | null;
 }
 
 // ---------------------------------------------------------------------------

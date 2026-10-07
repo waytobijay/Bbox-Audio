@@ -8,7 +8,12 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { backendHeaders, getBackend, recordHealthFacts } from "@/lib/server/backends";
+import {
+  backendHeaders,
+  getBackend,
+  recordHealthFacts,
+  recordUnreachable,
+} from "@/lib/server/backends";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,10 +46,9 @@ export async function POST(req: NextRequest) {
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
-      return NextResponse.json(
-        { ok: false, error: `Health check returned ${res.status}.` },
-        { status: 200 }
-      );
+      const why = `Health check returned ${res.status}.`;
+      await recordUnreachable(body.provider, why).catch(() => {});
+      return NextResponse.json({ ok: false, error: why }, { status: 200 });
     }
     health = await res.json();
     // Keep the card honest: refresh GPU, models and version from what it just
@@ -55,15 +59,13 @@ export async function POST(req: NextRequest) {
     );
   } catch (e) {
     const timedOut = e instanceof Error && e.name === "TimeoutError";
-    return NextResponse.json(
-      {
-        ok: false,
-        error: timedOut
-          ? "Health check timed out. The notebook may have stopped."
-          : "Couldn't reach the backend. Is the notebook still running?",
-      },
-      { status: 200 }
-    );
+    const error = timedOut
+      ? "Health check timed out. The notebook may have stopped."
+      : "Couldn't reach the backend. Is the notebook still running?";
+    // Remembered on the row, so the next person to look at the card sees it
+    // without having to press Test themselves.
+    await recordUnreachable(body.provider, error).catch(() => {});
+    return NextResponse.json({ ok: false, error }, { status: 200 });
   }
 
   if (!body.generate || !body.voiceId) {

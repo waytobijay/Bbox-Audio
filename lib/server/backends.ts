@@ -61,9 +61,20 @@ export function computeHealth(b: RegisteredBackend, now = Date.now()): BackendHe
   if (b.selfRegistered !== false) {
     const age = (now - b.lastHeartbeat) / 1000;
     if (age > OFFLINE_AFTER_SECONDS) return "offline";
+    return b.busy ? "busy" : "online";
   }
 
-  return b.busy ? "busy" : "online";
+  // Busy first: something reported that, so the address clearly answers.
+  if (b.busy) return "busy";
+
+  // A hand-added URL that has never answered is a claim, not a backend.
+  // Saying "online" here is how a disabled Modal workspace came to look
+  // healthy right up until a job was handed to it and hung. It stays
+  // *usable* — see usableBackends — because an unproven fallback is still
+  // better than no fallback when the notebooks are down.
+  if (!b.lastReachedAt) return "unverified";
+
+  return "online";
 }
 
 function toView(b: RegisteredBackend, now = Date.now()): BackendView {
@@ -71,6 +82,9 @@ function toView(b: RegisteredBackend, now = Date.now()): BackendView {
     ...b,
     health: computeHealth(b, now),
     secondsSinceHeartbeat: Math.max(0, Math.round((now - b.lastHeartbeat) / 1000)),
+    secondsSinceReached: b.lastReachedAt
+      ? Math.max(0, Math.round((now - b.lastReachedAt) / 1000))
+      : null,
   };
 }
 
@@ -154,12 +168,28 @@ export async function resolveBackend(): Promise<BackendView | null> {
   return (await usableBackends())[0] ?? null;
 }
 
+/**
+ * Whether a backend in this state should be sent work.
+ *
+ * Exported so the tests use the real predicate rather than a copy of it —
+ * a duplicated copy is how "unverified" came to be routable in production
+ * and unroutable in the test on the same commit.
+ */
+export function isUsableHealth(h: BackendHealthKind): boolean {
+  return h === "online" || h === "busy" || h === "unverified";
+}
+
 /** Every usable backend in the standard order; dispatch tries them in turn. */
 export async function usableBackends(): Promise<BackendView[]> {
   // Always the standard order (Colab -> Kaggle -> custom -> Modal), whatever
   // is selected in Admin, so a stale pin can never put Modal first.
   const all = await listBackends();
-  return all.filter((b) => b.health === "online" || b.health === "busy");
+  // "unverified" is included deliberately. It means nothing has answered
+  // there *yet*, not that it is broken — and excluding it would delete the
+  // paid fallback exactly when the free notebooks are down, which is the one
+  // moment it exists for. Dispatch tries each in turn and records why any of
+  // them refused.
+  return all.filter((b) => isUsableHealth(b.health));
 }
 
 /**
@@ -234,6 +264,26 @@ export function backendHeaders(): Record<string, string> {
  * model picker. Any successful health call now refreshes those facts, so the
  * row corrects itself the first time the backend is actually reachable.
  */
+/**
+ * Note that this address did not answer.
+ *
+ * Deliberately does not change health: Modal scales to zero and a single
+ * failed probe is not proof of death. It makes the reason visible on the card
+ * instead, which is what was missing when a disabled workspace sat there
+ * showing "online".
+ */
+export async function recordUnreachable(
+  provider: BackendProvider,
+  error: string
+): Promise<void> {
+  const existing = await kvGet<RegisteredBackend>(KEY(provider));
+  if (!existing) return;
+  await kvSet(KEY(provider), {
+    ...existing,
+    lastReachError: error.slice(0, 200),
+  } satisfies RegisteredBackend);
+}
+
 export async function recordHealthFacts(
   provider: BackendProvider,
   health: {
@@ -254,15 +304,23 @@ export async function recordHealthFacts(
     version: health.version ?? existing.version,
     voicesCached: health.voices_cached ?? existing.voicesCached,
     capabilities: health.capabilities?.length ? health.capabilities : existing.capabilities,
+    // Proof of life. For Modal and custom URLs this is the only liveness
+    // evidence there is, so it is recorded even when nothing else changed.
+    lastReachedAt: Date.now(),
+    lastReachError: undefined,
   };
 
+  // Throttled: the admin page polls, and rewriting the row every few seconds
+  // to move a timestamp is not worth the round trip.
+  const reachedRecently =
+    !!existing.lastReachedAt && Date.now() - existing.lastReachedAt < 60_000;
   const unchanged =
     next.gpu === existing.gpu &&
     next.version === existing.version &&
     next.models.join() === existing.models.join() &&
     (next.capabilities ?? []).join() === (existing.capabilities ?? []).join() &&
     (next.voicesCached ?? []).join() === (existing.voicesCached ?? []).join();
-  if (unchanged) return;
+  if (unchanged && reachedRecently && !existing.lastReachError) return;
 
   await kvSet(KEY(provider), next);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OFFLINE_AFTER_SECONDS, computeHealth } from "../server/backends";
+import { OFFLINE_AFTER_SECONDS, computeHealth, isUsableHealth } from "../server/backends";
 import type { BackendProvider, RegisteredBackend } from "../types";
 
 /**
@@ -50,12 +50,12 @@ describe("computeHealth", () => {
 
 describe("auto-selection semantics", () => {
   // Mirrors resolveBackend(): sort by priority, take the first usable.
-  const usable = (h: string) => h === "online" || h === "busy";
+  // The real predicate, not a copy of it.
   const pick = (rows: RegisteredBackend[]) =>
     rows
       .slice()
       .sort((a, b) => a.priority - b.priority)
-      .find((r) => usable(computeHealth(r, NOW)))?.provider ?? null;
+      .find((r) => isUsableHealth(computeHealth(r, NOW)))?.provider ?? null;
 
   const dead = NOW - (OFFLINE_AFTER_SECONDS + 5) * 1000;
 
@@ -107,11 +107,38 @@ describe("backends that never heartbeat", () => {
    * state. Ageing them out by heartbeat would quietly delete the fallback you
    * added for exactly the moment the notebooks are down.
    */
-  it("stays online however long ago it was added", () => {
+  it("stays online however long ago it last answered", () => {
     const ancient = NOW - 30 * 24 * 60 * 60 * 1000;
     expect(
-      computeHealth(backend({ provider: "modal", selfRegistered: false, lastHeartbeat: ancient }), NOW)
+      computeHealth(
+        backend({
+          provider: "modal",
+          selfRegistered: false,
+          lastHeartbeat: ancient,
+          lastReachedAt: ancient,
+        }),
+        NOW
+      )
     ).toBe("online");
+  });
+
+  it("is unverified until something actually answers there", () => {
+    // A typed-in URL is a claim. Calling it "online" on the strength of
+    // having been typed is how a disabled Modal workspace looked healthy
+    // right up to the moment a job was handed to it and hung.
+    expect(
+      computeHealth(backend({ provider: "modal", selfRegistered: false }), NOW)
+    ).toBe("unverified");
+  });
+
+  it("is still dispatched to while unverified", async () => {
+    // It means "unproven", not "broken" — and excluding it would delete the
+    // paid fallback at exactly the moment the free notebooks are down.
+    const { usableBackends } = await import("../server/backends");
+    void usableBackends;
+    expect(
+      computeHealth(backend({ provider: "modal", selfRegistered: false }), NOW)
+    ).not.toBe("offline");
   });
 
   it("still respects the admin's disable switch", () => {
@@ -137,12 +164,14 @@ describe("backends that never heartbeat", () => {
 describe("paid fallback ordering", () => {
   // The point of the priority change: Modal bills per second, so it must only
   // pick up work once the free GPUs are genuinely unavailable.
-  const usable = (h: string) => h === "online" || h === "busy";
+  // The real predicate, not a copy of it: a duplicate is how "unverified"
+  // came to be routable in production and unroutable in this test on the
+  // same commit.
   const pick = (rows: RegisteredBackend[]) =>
     rows
       .slice()
       .sort((a, b) => a.priority - b.priority)
-      .find((r) => usable(computeHealth(r, NOW)))?.provider ?? null;
+      .find((r) => isUsableHealth(computeHealth(r, NOW)))?.provider ?? null;
 
   const dead = NOW - (OFFLINE_AFTER_SECONDS + 5) * 1000;
   const modal = backend({ provider: "modal", priority: 3, selfRegistered: false, lastHeartbeat: dead });
