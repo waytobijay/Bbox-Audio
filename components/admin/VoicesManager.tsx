@@ -123,6 +123,18 @@ export function VoicesManager() {
                 `rename-${v.id}`
               )
             }
+            onLanguage={(language) =>
+              void act(
+                `/api/admin/voices/${v.id}`,
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ language }),
+                },
+                `language-${v.id}`,
+                "Language updated."
+              )
+            }
             onSync={() =>
               void act(
                 `/api/admin/voices/${v.id}/sync`,
@@ -338,6 +350,7 @@ function VoiceRow({
   busy,
   onSetDefault,
   onRename,
+  onLanguage,
   onSync,
   onDelete,
 }: {
@@ -345,6 +358,7 @@ function VoiceRow({
   busy: string | null;
   onSetDefault: () => void;
   onRename: (name: string) => void;
+  onLanguage: (language: string) => void;
   onSync: () => void;
   onDelete: () => void;
 }) {
@@ -404,7 +418,32 @@ function VoiceRow({
           )}
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
-            <span>{languageName(voice.language)}</span>
+            {/*
+              Editable, not a label. A voice's language decides which
+              synthesis profile it gets, so it is the one field you most need
+              to change after the fact — and it was the one field only the
+              Add form could set.
+            */}
+            <Select
+              aria-label="Language"
+              value={voice.language}
+              disabled={locked}
+              onChange={(e) => {
+                if (e.target.value !== voice.language) onLanguage(e.target.value);
+              }}
+              className="h-7 w-auto py-0 text-[12px]"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name}
+                </option>
+              ))}
+              {/* Keep an unrecognised stored code visible rather than
+                  silently showing the first option instead. */}
+              {LANGUAGES.some((l) => l.code === voice.language) ? null : (
+                <option value={voice.language}>{languageName(voice.language)}</option>
+              )}
+            </Select>
             <span>{formatDuration(voice.durationSec)}</span>
             {/*
               This string is what every API caller sends as voice_id, so it is
