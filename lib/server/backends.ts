@@ -272,6 +272,27 @@ export function backendHeaders(): Record<string, string> {
  * instead, which is what was missing when a disabled workspace sat there
  * showing "online".
  */
+/**
+ * Note that this address answered.
+ *
+ * A /health probe records this through recordHealthFacts, but a backend can
+ * go a long time without being probed while happily accepting jobs — which
+ * left Modal reading "never reached" immediately after it had served one.
+ */
+export async function recordReached(provider: BackendProvider): Promise<void> {
+  const existing = await kvGet<RegisteredBackend>(KEY(provider));
+  if (!existing) return;
+  // Throttled: a 100-scene batch should not rewrite this row 100 times.
+  if (existing.lastReachedAt && Date.now() - existing.lastReachedAt < 60_000) {
+    if (!existing.lastReachError) return;
+  }
+  await kvSet(KEY(provider), {
+    ...existing,
+    lastReachedAt: Date.now(),
+    lastReachError: undefined,
+  } satisfies RegisteredBackend);
+}
+
 export async function recordUnreachable(
   provider: BackendProvider,
   error: string

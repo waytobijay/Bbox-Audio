@@ -23,6 +23,7 @@ import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
 import {
   backendHeaders,
   recordHealthFacts,
+  recordReached,
   recordUnreachable,
   usableBackends,
 } from "./backends";
@@ -389,6 +390,8 @@ export async function createAndDispatchJob(
           const detail = await res.text().catch(() => "");
           throw new Error(`backend returned ${res.status} ${detail.slice(0, 200)}`);
         }
+        // It answered, so the card should stop saying it never has.
+        await recordReached(target.provider).catch(() => {});
         await saveJob({ ...attempt, status: "running" });
         return;
       } catch (e) {

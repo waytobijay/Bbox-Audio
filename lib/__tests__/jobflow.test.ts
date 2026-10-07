@@ -47,6 +47,7 @@ vi.mock("../server/backends", () => ({
   // but it must exist: leaving it out made every dispatch throw on an
   // undefined call and silently stranded the job in "queued".
   recordUnreachable: async () => {},
+  recordReached: async () => {},
 }));
 
 const libraryVoice = {
