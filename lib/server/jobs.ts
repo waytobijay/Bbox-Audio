@@ -19,7 +19,7 @@
 
 import { after } from "next/server";
 import { resolveSynthesis } from "@/lib/languageProfiles";
-import type { BackendProvider, VideoChapterSpan } from "@/lib/types";
+import type { BackendProvider, LibraryVoice, VideoChapterSpan } from "@/lib/types";
 import {
   backendHeaders,
   recordHealthFacts,
@@ -89,6 +89,10 @@ export interface Job {
   stage?: string;
   /** Real start/end seconds of every scene in the finished MP4. */
   timeline?: VideoChapterSpan[];
+  /** Expressive narration only: what the backend actually applied. */
+  paramsUsed?: Record<string, unknown>;
+  /** Expressive narration only: per sentence tone, runs, engines, times. */
+  segments?: Record<string, unknown>[];
 }
 
 export async function getJob(id: string): Promise<Job | null> {
@@ -324,9 +328,15 @@ export async function createAndDispatchJob(
     },
   });
 
+  // Linked voices (English / tone references) travel with the job only when
+  // the request opted into expressive narration — nobody else pays for them.
+  const wantsRefs = p.code_switch === true || p.prosody_tags === true;
+  const voiceRefs = wantsRefs ? await resolveVoiceRefs(voice) : undefined;
+
   const body = {
     job_id: id,
     voice_id: input.voiceId,
+    ...(voiceRefs ? { voice_refs: voiceRefs } : {}),
     // The backend picks between these two: it is the only place that knows
     // whether the primary model actually loaded, and it reports which it used.
     engine: synth.engine,
@@ -416,6 +426,34 @@ export async function createAndDispatchJob(
   return job;
 }
 
+export interface VoiceRefPayload {
+  voice_id: string;
+  audio_url: string;
+  transcript: string;
+  language: string;
+}
+
+/** Turn a voice's linked ids into what the backend needs to cache them. */
+export async function resolveVoiceRefs(
+  voice: Pick<LibraryVoice, "id" | "refs">
+): Promise<Record<string, VoiceRefPayload> | undefined> {
+  const out: Record<string, VoiceRefPayload> = {};
+  for (const [slot, refId] of Object.entries(voice.refs ?? {})) {
+    if (!refId || refId === voice.id) continue;
+    const ref = await getVoice(refId);
+    // A deleted linked voice just stops being used; it never fails the job.
+    if (ref) {
+      out[slot] = {
+        voice_id: ref.id,
+        audio_url: ref.audioUrl,
+        transcript: ref.transcript,
+        language: ref.language,
+      };
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 // --- collection -----------------------------------------------------------
 
 interface BackendItem {
@@ -434,6 +472,8 @@ export interface BackendResult {
   gen_seconds?: number;
   items?: BackendItem[];
   error?: string;
+  params_used?: Record<string, unknown>;
+  segments?: Record<string, unknown>[];
 }
 
 /**
@@ -523,6 +563,8 @@ async function collectLocked(job: Job, result: BackendResult): Promise<Job> {
     duration: result.duration,
     genSeconds: result.gen_seconds,
     engineUsed: result.engine_used,
+    ...(result.params_used ? { paramsUsed: result.params_used } : {}),
+    ...(result.segments ? { segments: result.segments } : {}),
     items,
     // A stitched job has exactly one file; expose it directly so the common
     // case is `audio_url` and callers never index into a list of one.

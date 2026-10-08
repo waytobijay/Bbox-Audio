@@ -50,7 +50,7 @@ vi.mock("../server/backends", () => ({
   recordReached: async () => {},
 }));
 
-const libraryVoice = {
+const libraryVoice: Record<string, unknown> = {
   id: "me-1234",
   name: "Me",
   language: "en",
@@ -63,8 +63,12 @@ const libraryVoice = {
 };
 let voiceExists = true;
 
+/** Other library voices, for linked-reference tests. */
+const extraVoices = new Map<string, Record<string, unknown>>();
+
 vi.mock("../server/voices", () => ({
-  getVoice: async (id: string) => (voiceExists && id === libraryVoice.id ? libraryVoice : null),
+  getVoice: async (id: string) =>
+    voiceExists && id === libraryVoice.id ? libraryVoice : extraVoices.get(id) ?? null,
 }));
 
 const { collectJob, createAndDispatchJob, flushPending, getJob, reconcileJob } =
@@ -529,5 +533,65 @@ describe("cold backend must not kill the job", () => {
     await expect(createAndDispatchJob(dispatchInput, "https://app.test")).rejects.toMatchObject({
       code: "unknown_voice",
     });
+  });
+});
+
+describe("expressive narration: linked voices travel with the job", () => {
+  const input = {
+    chunks: ["[excited] तपाईंको laptop को IP कसैले देख्न सक्छ?"],
+    paragraphBreaks: [false],
+    voiceId: "me-1234",
+    mode: "stitch" as const,
+    format: "mp3" as const,
+    source: "key-1",
+    params: { language: "ne", code_switch: true, prosody_tags: true },
+  };
+
+  beforeEach(() => {
+    activeBackend = { provider: "modal", url: "https://gpu.test", health: "online" };
+    voiceExists = true;
+    libraryVoice.refs = { en: "me-en", calm: "gone-voice" };
+    extraVoices.set("me-en", {
+      id: "me-en",
+      name: "Me (English)",
+      language: "en",
+      transcript: "hi",
+      audioUrl: "https://blob.test/voices/me-en.wav",
+    });
+  });
+
+  afterEach(() => {
+    delete libraryVoice.refs;
+    extraVoices.clear();
+  });
+
+  async function sentBody(params: Record<string, unknown>) {
+    const fetchMock = routeFetch({
+      "/health": { json: { voices_cached: ["me-1234"] } },
+      "/jobs": { json: { accepted: true } },
+    });
+    await createAndDispatchJob({ ...input, params }, "https://app.test");
+    await flushPending();
+    const dispatch = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/jobs"));
+    return JSON.parse(String((dispatch?.[1] as RequestInit)?.body));
+  }
+
+  it("sends the linked English voice, and skips a link whose voice was deleted", async () => {
+    const sent = await sentBody(input.params);
+    expect(sent.voice_refs).toEqual({
+      en: {
+        voice_id: "me-en",
+        audio_url: "https://blob.test/voices/me-en.wav",
+        transcript: "hi",
+        language: "en",
+      },
+    });
+    expect(sent.params.code_switch).toBe(true);
+    expect(sent.params.prosody_tags).toBe(true);
+  });
+
+  it("sends no refs to a request that did not opt in", async () => {
+    const sent = await sentBody({ language: "ne" });
+    expect(sent.voice_refs).toBeUndefined();
   });
 });

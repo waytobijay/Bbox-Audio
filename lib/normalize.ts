@@ -292,8 +292,27 @@ export function expandAbbreviations(input: string): string {
  * for English — for other languages (e.g. Hindi) digits are left for the
  * model to read in-language.
  */
-export function normalizeText(input: string, language = "en"): string {
-  let s = input;
+/** Tone/pause directions for expressive narration — kept only on request. */
+const PROSODY_TAG = /\[\s*(calm|excited|serious|pause)\s*\]/gi;
+
+export interface NormalizeOptions {
+  /**
+   * Keep [calm] / [excited] / [serious] / [pause] for the backend instead of
+   * stripping the brackets (which would leave the word to be spoken).
+   */
+  keepProsodyTags?: boolean;
+}
+
+export function normalizeText(
+  input: string,
+  language = "en",
+  opts: NormalizeOptions = {}
+): string {
+  // Park the tags as private-use characters that every step below ignores,
+  // then put them back at the end.
+  let s = opts.keepProsodyTags
+    ? input.replace(PROSODY_TAG, (_m, tag: string) => `\uE000${tag.toLowerCase()}\uE001`)
+    : input;
   s = stripMarkdown(s);
   s = asciiPunctuation(s);
   if (language.startsWith("en")) {
@@ -304,5 +323,6 @@ export function normalizeText(input: string, language = "en"): string {
   s = s.replace(/[#*_`~<>{}[\]|\\^]/g, " ");
   // collapse whitespace
   s = s.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").trim();
+  if (opts.keepProsodyTags) s = s.replace(/\uE000([a-z]+)\uE001/g, "[$1]");
   return s;
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeAudioBlob, encodeWavPcm16, formatDuration } from "@/lib/audio";
 import { LANGUAGES, SAMPLE_IDEAL_MAX_SEC, SAMPLE_IDEAL_MIN_SEC } from "@/lib/config";
 import { toast } from "@/lib/toast";
-import type { LibraryVoiceView } from "@/lib/types";
+import type { LibraryVoiceView, VoiceRefSlot } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -100,7 +100,20 @@ export function VoicesManager() {
           <VoiceRow
             key={v.id}
             voice={v}
+            others={data.voices.filter((o) => o.id !== v.id)}
             busy={busy}
+            onLinkRef={(slot, refId) =>
+              void act(
+                `/api/admin/voices/${v.id}`,
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ refs: { [slot]: refId } }),
+                },
+                `ref-${v.id}-${slot}`,
+                refId ? "Linked." : "Unlinked."
+              )
+            }
             onSetDefault={() =>
               void act(
                 `/api/admin/voices/${v.id}`,
@@ -345,8 +358,18 @@ function AddVoiceCard({ disabled, onAdded }: { disabled: boolean; onAdded: () =>
 
 // --- row ------------------------------------------------------------------
 
+/** What each linked-voice slot is for, in the words the admin needs. */
+const REF_SLOTS: { slot: VoiceRefSlot; label: string; hint: string }[] = [
+  { slot: "en", label: "English words", hint: "You speaking English — voices English words in a mixed script" },
+  { slot: "excited", label: "[excited]", hint: "You speaking with energy — hooks and quick wins" },
+  { slot: "serious", label: "[serious]", hint: "You speaking firmly — warnings" },
+  { slot: "calm", label: "[calm]", hint: "You explaining steps calmly" },
+];
+
 function VoiceRow({
   voice,
+  others,
+  onLinkRef,
   busy,
   onSetDefault,
   onRename,
@@ -355,6 +378,8 @@ function VoiceRow({
   onDelete,
 }: {
   voice: LibraryVoiceView;
+  others: LibraryVoiceView[];
+  onLinkRef: (slot: VoiceRefSlot, refId: string | null) => void;
   busy: string | null;
   onSetDefault: () => void;
   onRename: (name: string) => void;
@@ -483,6 +508,43 @@ function VoiceRow({
           )}
 
           <audio src={voice.audioUrl} controls preload="none" className="mt-3 h-9 w-full max-w-sm" />
+
+          {/*
+            Linked voices are only used by expressive narration
+            (code_switch / prosody_tags). Each is another clip of the same
+            person — Chatterbox copies the delivery of its reference, so a
+            calm clip makes calm speech and an English clip makes English
+            sound English.
+          */}
+          {others.length ? (
+            <details className="mt-3 text-[12px] text-muted" open={Boolean(voice.refs)}>
+              <summary className="cursor-pointer select-none font-medium text-ink">
+                Linked voices{voice.refs ? ` (${Object.keys(voice.refs).length})` : ""}
+              </summary>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {REF_SLOTS.map(({ slot, label, hint }) => (
+                  <label key={slot} className="flex flex-col gap-1" title={hint}>
+                    <span className="text-[11.5px] font-semibold text-faint">{label}</span>
+                    <Select
+                      aria-label={`${label} voice`}
+                      value={voice.refs?.[slot] ?? ""}
+                      disabled={locked}
+                      onChange={(e) => onLinkRef(slot, e.target.value || null)}
+                      className="h-7 py-0 text-[12px]"
+                    >
+                      <option value="">— use this voice —</option>
+                      {others.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name} ({languageName(o.language)})
+                        </option>
+                      ))}
+                    </Select>
+                    <span className="text-[11px] text-faint">{hint}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">

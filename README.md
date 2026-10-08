@@ -163,6 +163,31 @@ curl "$STATUS_URL" -H "Authorization: Bearer $VOICEFORGE_KEY"
 
 **Uploading your own visuals:** scenes take any public URL, so Pixabay and the like work directly. For images you generate yourself, `POST /api/v1/uploads` returns a short-lived target to PUT the file to and a `public_url` to use as a scene — the bytes never pass through the API, because Vercel rejects request bodies over 4.5 MB. Uploads marked `purpose: "scene"` are swept after 7 days; `"brand"` is kept.
 
+### Expressive Nepali narration (opt-in)
+
+For Nepali scripts that mix in English tech words, `POST /api/v1/tts` takes a few extra fields (top level or inside `params`). Send none of them and nothing changes.
+
+| Field | Does |
+|---|---|
+| `code_switch: true` | Nepali words are voiced by the Nepali engine, English words (kept in **English letters**) by the English model, in the same voice, then spliced. A single postposition after an English word rides along (`laptop को` → "laptop ko"), and acronyms are spelled (`IP` → "I P"). |
+| `prosody_tags: true` | Honours `[excited]`, `[serious]`, `[calm]` (apply until the next tag) and `[pause]` (≈350 ms). Tags are never spoken. |
+| `speed` | 0.8–1.4, pitch preserved (ffmpeg `atempo`). |
+| `lexicon` | Extra English → Devanagari spellings for when `code_switch` is off, e.g. `{"router":"राउटर्"}`. |
+
+```json
+{
+  "voice_id": "bijay-nepali-522a299a",
+  "text": "[excited] तपाईंको laptop को IP कसैले देख्न सक्छ? [calm] Settings मा गएर Account option खोल्नुहोस्, [pause] Two-step verification On गर्नुहोस्।",
+  "code_switch": true,
+  "prosody_tags": true,
+  "speed": 1.1
+}
+```
+
+Every sentence is checked for the model talking past the end of the text (the "saya"/"ha" tail): over-long takes are re-rolled, and a short trailing burst after a breath is trimmed. The finished job reports `params_used` and per-sentence `segments` (tone, runs, engine, takes, start/end).
+
+**Linked voices.** In Admin → Voices, open *Linked voices* on your Nepali voice and link other clips of yourself: one speaking **English** (used for the English words), and optionally one each speaking **excited**, **serious** and **calm** (used for sentences with that tag). Chatterbox copies the delivery of its reference clip, so a clip in the right mood does more for tone than any setting. Each linked clip is just another voice upload, 10–20 s.
+
 Per-key **rate limits** and **monthly character quotas** are set when you create the key. Generated audio is deleted after the retention window in Settings (7 days by default).
 
 ---

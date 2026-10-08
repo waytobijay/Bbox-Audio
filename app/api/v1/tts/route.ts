@@ -26,6 +26,24 @@ export const maxDuration = 60;
 /** One call's worth of script. Longer than this belongs in several jobs. */
 const MAX_CHARS = 50_000;
 
+/**
+ * Expressive narration (Nepali). All opt-in: a request that sends none of
+ * these renders exactly as before. Accepted at the top level and inside
+ * `params`, because n8n users reach for whichever they saw first.
+ */
+const expressiveFields = {
+  /** Nepali words on the Nepali model, English words on the English model. */
+  code_switch: z.boolean().optional(),
+  /** Only "en" today — the language of the Latin-script words. */
+  secondary_language: z.enum(["en"]).optional(),
+  /** Honour [calm] [excited] [serious] [pause] in the text. */
+  prosody_tags: z.boolean().optional(),
+  /** Speaking rate, pitch preserved. */
+  speed: z.number().min(0.8).max(1.4).optional(),
+  /** Extra English -> Devanagari spellings, e.g. {"router": "राउटर्"}. */
+  lexicon: z.record(z.string().max(40), z.string().max(80)).optional(),
+};
+
 const paramsSchema = z
   .object({
     seed: z.number().int().min(0).max(2 ** 31).optional(),
@@ -37,6 +55,7 @@ const paramsSchema = z
     model: z.enum(["chatterbox", "qwen3"]).optional(),
     /** Overrides the language profile's engine for this one request. */
     engine: z.string().min(1).max(40).optional(),
+    ...expressiveFields,
   })
   .optional();
 
@@ -47,6 +66,7 @@ const ttsSchema = z.object({
   format: z.enum(["mp3", "wav"]).optional(),
   params: paramsSchema,
   callback_url: z.string().url().max(2000).optional(),
+  ...expressiveFields,
 });
 
 export async function POST(req: Request) {
@@ -82,7 +102,15 @@ export async function POST(req: Request) {
   }
 
   const language = body.language ?? voice.language;
-  const drafts = chunkScript(body.text, undefined, language);
+  // Top-level fields win over the same fields inside params.
+  const expressive = Object.fromEntries(
+    (["code_switch", "secondary_language", "prosody_tags", "speed", "lexicon"] as const)
+      .map((k) => [k, body[k] ?? body.params?.[k]])
+      .filter(([, v]) => v !== undefined)
+  );
+  const drafts = chunkScript(body.text, undefined, language, {
+    keepProsodyTags: expressive.prosody_tags === true,
+  });
   if (!drafts.length) {
     return apiError("That text has nothing to say once normalized.", 400, "empty_text");
   }
@@ -100,6 +128,7 @@ export async function POST(req: Request) {
         params: {
           ...DEFAULT_PARAMS,
           ...body.params,
+          ...expressive,
           language,
         },
       },

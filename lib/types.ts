@@ -245,6 +245,14 @@ export interface LibraryVoice {
     cfg?: number;
     temperature?: number;
   };
+  /**
+   * Other library voices of the same speaker, used by expressive narration:
+   * `en` voices the English words in a code-switched Nepali script, and the
+   * tone slots voice sentences tagged [calm] / [excited] / [serious]. Each is
+   * just another uploaded clip — record yourself speaking English, or
+   * speaking excitedly, and link it here.
+   */
+  refs?: VoiceRefs;
   /** Exact words spoken in the clip. Required by Qwen3, helps Chatterbox. */
   transcript: string;
   /** Public Blob URL of the reference clip (always 16-bit PCM WAV). */
@@ -254,6 +262,10 @@ export interface LibraryVoice {
   createdAt: number;
   updatedAt: number;
 }
+
+export const VOICE_REF_SLOTS = ["en", "calm", "excited", "serious"] as const;
+export type VoiceRefSlot = (typeof VOICE_REF_SLOTS)[number];
+export type VoiceRefs = Partial<Record<VoiceRefSlot, string>>;
 
 /** Library row plus whether it's the default pick. */
 export interface LibraryVoiceView extends LibraryVoice {

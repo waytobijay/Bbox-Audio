@@ -12,7 +12,7 @@
  */
 
 import { MAX_CHARS, MIN_CHARS } from "./config";
-import { normalizeText } from "./normalize";
+import { normalizeText, type NormalizeOptions } from "./normalize";
 import type { ChunkDraft } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,12 @@ function mergeTiny(drafts: ChunkDraft[], max: number): ChunkDraft[] {
  * greedy pack. `---` on its own line forces a chunk break (sentence-length
  * gap); a blank line is a paragraph break (longer gap).
  */
-export function chunkScript(raw: string, max = MAX_CHARS, language = "en"): ChunkDraft[] {
+export function chunkScript(
+  raw: string,
+  max = MAX_CHARS,
+  language = "en",
+  opts: NormalizeOptions = {}
+): ChunkDraft[] {
   const drafts: ChunkDraft[] = [];
   const text = raw.replace(/\r\n?/g, "\n");
 
@@ -182,7 +187,7 @@ export function chunkScript(raw: string, max = MAX_CHARS, language = "en"): Chun
   for (const segment of segments) {
     const paragraphs = segment
       .split(/\n[ \t]*\n+/)
-      .map((p) => normalizeText(p, language))
+      .map((p) => normalizeText(p, language, opts))
       .filter((p) => p.length > 0);
 
     for (const paragraph of paragraphs) {

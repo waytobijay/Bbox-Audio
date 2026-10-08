@@ -11,7 +11,7 @@
  * past the route handler.
  */
 
-import type { LibraryVoice, LibraryVoiceView } from "@/lib/types";
+import { VOICE_REF_SLOTS, type LibraryVoice, type LibraryVoiceView, type VoiceRefs } from "@/lib/types";
 import { deleteBlob, isBlobConfigured, putBlob } from "./blob";
 import { isRedisConfigured, kvDel, kvGet, kvSet } from "./redis";
 
@@ -236,7 +236,30 @@ export async function createVoice(input: CreateVoiceInput): Promise<LibraryVoice
   return row;
 }
 
-export type VoicePatch = Partial<Pick<LibraryVoice, "name" | "language" | "transcript">>;
+export type VoicePatch = Partial<Pick<LibraryVoice, "name" | "language" | "transcript">> & {
+  /** Per slot: a voice id to link, or null to unlink. */
+  refs?: Partial<Record<keyof VoiceRefs, string | null>>;
+};
+
+/**
+ * Apply a refs patch: null unlinks, a voice can't reference itself, and
+ * unknown slots are ignored. Pure, so it is tested without storage.
+ */
+export function mergeRefs(
+  selfId: string,
+  current: VoiceRefs | undefined,
+  patch: VoicePatch["refs"]
+): VoiceRefs | undefined {
+  if (!patch) return current;
+  const next: VoiceRefs = { ...(current ?? {}) };
+  for (const slot of VOICE_REF_SLOTS) {
+    if (!(slot in patch)) continue;
+    const v = patch[slot];
+    if (!v || v === selfId) delete next[slot];
+    else next[slot] = v;
+  }
+  return Object.keys(next).length ? next : undefined;
+}
 
 export async function updateVoice(id: string, patch: VoicePatch): Promise<LibraryVoice | null> {
   const existing = await getVoice(id);
@@ -248,6 +271,11 @@ export async function updateVoice(id: string, patch: VoicePatch): Promise<Librar
     ...(patch.transcript !== undefined ? { transcript: patch.transcript.trim() } : {}),
     updatedAt: Date.now(),
   };
+  if (patch.refs !== undefined) {
+    const refs = mergeRefs(id, existing.refs, patch.refs);
+    if (refs) next.refs = refs;
+    else delete next.refs;
+  }
   await kvSet(KEY(id), next);
   return next;
 }

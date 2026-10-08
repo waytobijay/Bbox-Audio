@@ -43,18 +43,48 @@ from typing import Any, Dict, List, Optional
 try:
     from backend.voiceforge_lang import (
         DEFAULT_ENGINE,
+        PAUSE_TAG_SEC,
+        change_rate,
+        english_for_tts,
+        expected_speech_seconds,
+        gap_after,
+        max_speech_seconds,
         ne_expand_digits,
         ne_prepare,
+        parse_prosody,
         plan_engine,
+        silence,
+        splice,
+        split_runs,
         strip_state_prefixes,
+        strip_tags,
+        tone_settings,
+        transliterate_latin,
+        trim_speech,
+        wants_expressive,
     )
 except ImportError:  # pragma: no cover - notebook layout
     from voiceforge_lang import (
         DEFAULT_ENGINE,
+        PAUSE_TAG_SEC,
+        change_rate,
+        english_for_tts,
+        expected_speech_seconds,
+        gap_after,
+        max_speech_seconds,
         ne_expand_digits,
         ne_prepare,
+        parse_prosody,
         plan_engine,
+        silence,
+        splice,
+        split_runs,
         strip_state_prefixes,
+        strip_tags,
+        tone_settings,
+        transliterate_latin,
+        trim_speech,
+        wants_expressive,
     )
 
 import numpy as np
@@ -435,6 +465,206 @@ def cache_voice(voice_id: str, audio_url: str, transcript: str = "", language: s
 
 
 # ---------------------------------------------------------------------------
+# expressive Nepali: tone tags, Nepali + English code-switching, clean endings
+# ---------------------------------------------------------------------------
+#
+# Opt-in per request (code_switch / prosody_tags / speed). The decisions live
+# in voiceforge_lang.py where CI can test them; this part only drives models.
+
+def _flag(v: Any) -> bool:
+    return v is True or str(v).lower() in ("1", "true", "yes")
+
+
+def _cache_refs(refs: Dict[str, Any]) -> Dict[str, str]:
+    """Cache the linked reference voices; return {slot: voice_id} for the ones
+    that are usable. A ref that fails to download is skipped, never fatal —
+    the main voice still speaks that part."""
+    usable: Dict[str, str] = {}
+    for slot, ref in (refs or {}).items():
+        if not isinstance(ref, dict) or not ref.get("voice_id"):
+            continue
+        vid = str(ref["voice_id"])
+        try:
+            if vid not in VOICES and ref.get("audio_url"):
+                cache_voice(vid, ref["audio_url"], ref.get("transcript", ""), ref.get("language", "en"))
+            if vid in VOICES:
+                usable[str(slot)] = vid
+        except Exception as e:  # noqa: BLE001
+            print(f"[expressive] ref {slot}={vid} unavailable: {e}", flush=True)
+    return usable
+
+
+def _gen_clean(
+    text: str,
+    voice_id: str,
+    *,
+    model: str,
+    engine: str,
+    language: str,
+    st: Dict[str, float],
+    seed: int,
+) -> tuple:
+    """Generate, then cut anything the model said after the text ended.
+
+    A take whose raw length is far beyond what the words could need is a
+    hallucinated tail; it is re-rolled with a new seed (up to 3 takes) and the
+    shortest take wins if none is clean.
+    Returns (audio, sr, takes).
+    """
+    cap = max_speech_seconds(text)
+    expected = expected_speech_seconds(text)
+    best = None
+    sr = 24000
+    for take in range(3):
+        audio, sr, _ = _generate_chunk(
+            text,
+            voice_id,
+            model=model,
+            seed=seed + take * 7919,
+            language=language,
+            engine=engine,
+            exaggeration=st["exaggeration"],
+            cfg=st["cfg"],
+            temperature=st["temperature"],
+        )
+        raw = len(audio) / max(1, sr)
+        if best is None or raw < best[1]:
+            best = (audio, raw)
+        # Trailing silence is normal; only far-too-long takes are re-rolled.
+        if raw <= cap * 1.5 + 0.6:
+            return trim_speech(audio, sr, max_seconds=cap, expected=expected), sr, take + 1
+    return trim_speech(best[0], sr, max_seconds=cap, expected=expected), sr, 3
+
+
+def _render_expressive(
+    job: Dict[str, Any], chunks: List[str], plan: Dict[str, Any], params: Dict[str, Any]
+) -> tuple:
+    """One audio array per input chunk, plus metadata for the result."""
+    voice_id = job["voice_id"]
+    refs = _cache_refs(job.get("voice_refs") or {})
+    code_switch = _flag(params.get("code_switch"))
+    prosody = _flag(params.get("prosody_tags"))
+    try:
+        speed = float(params.get("speed") or 1.0)
+    except (TypeError, ValueError):
+        speed = 1.0
+    speed = min(1.4, max(0.8, speed))
+    lexicon = params.get("lexicon") if isinstance(params.get("lexicon"), dict) else None
+    model = str(params.get("model", "chatterbox") or "chatterbox")
+    seed0 = int(params.get("seed", 0) or 0)
+    base = {
+        "exaggeration": plan["exaggeration"],
+        "cfg": plan["cfg"],
+        "temperature": plan["temperature"],
+    }
+    # English runs speak with the linked English reference when there is one:
+    # same person, recorded speaking English, so the English model has the
+    # right accent to copy instead of a Nepali-speaking clip.
+    en_voice = refs.get("en") or voice_id
+
+    out: List[np.ndarray] = []
+    segments: List[Dict[str, Any]] = []
+    sr = 24000
+    tone: Optional[str] = None
+    n = 0
+    takes = 0
+    tones_used: set = set()
+
+    for ci, chunk in enumerate(chunks):
+        text = chunk if prosody else strip_tags(chunk)
+        sentences, tone = parse_prosody(text, tone if prosody else None)
+        pieces: List[np.ndarray] = []
+        t = 0.0
+        for s in sentences:
+            st = tone_settings(s["tone"] if prosody else None, base)
+            if s["tone"]:
+                tones_used.add(s["tone"])
+            if prosody and s["pause_before"] and pieces:
+                pieces.append(silence(PAUSE_TAG_SEC, sr))
+                t += PAUSE_TAG_SEC
+            has_latin = bool(re.search(r"[A-Za-z]", s["text"]))
+            runs = split_runs(s["text"]) if (code_switch and has_latin) else [{"lang": "ne", "text": s["text"]}]
+            ne_voice = refs.get(s["tone"] or "") or voice_id
+            run_audio: List[np.ndarray] = []
+            run_meta: List[Dict[str, Any]] = []
+            for ri, r in enumerate(runs):
+                n += 1
+                if r["lang"] == "en":
+                    spoken = english_for_tts(r["text"], final=ri == len(runs) - 1)
+                    audio, sr, k = _gen_clean(
+                        spoken, en_voice, model="chatterbox", engine=DEFAULT_ENGINE,
+                        language="en", st=st, seed=seed0 + n,
+                    )
+                    engine_name = "chatterbox-en"
+                else:
+                    spoken = ne_expand_digits(transliterate_latin(r["text"], lexicon))
+                    audio, sr, k = _gen_clean(
+                        spoken, ne_voice, model=model, engine=plan["engine"],
+                        language=plan["language"], st=st, seed=seed0 + n,
+                    )
+                    engine_name = plan["engine_used"]
+                takes += k
+                run_audio.append(audio)
+                run_meta.append({"lang": r["lang"], "text": spoken, "engine": engine_name, "takes": k})
+
+            sentence = splice(run_audio, sr, gap=0.02) if len(run_audio) > 1 else run_audio[0]
+            sentence = change_rate(sentence, sr, st["rate"] * speed)
+            dur = len(sentence) / sr
+            segments.append(
+                {
+                    "chunk": ci,
+                    "start": round(t, 2),
+                    "end": round(t + dur, 2),
+                    "tone": s["tone"],
+                    "runs": run_meta,
+                }
+            )
+            pieces.append(sentence)
+            t += dur
+            gap = gap_after(s["text"])
+            pieces.append(silence(gap, sr))
+            t += gap
+        if pieces:
+            pieces.pop()  # the chunk gap belongs to the stitcher, not here
+        out.append(np.concatenate(pieces) if pieces else silence(0.2, sr))
+
+    meta = {
+        "params_used": {
+            "code_switch": code_switch,
+            "prosody_tags": prosody,
+            "speed": speed,
+            "en_voice": refs.get("en"),
+            "tone_voices": {k: v for k, v in refs.items() if k != "en"},
+            "tones": sorted(tones_used),
+            "takes": takes,
+            "runs": n,
+        },
+        "segments": segments,
+    }
+    return out, sr, meta
+
+
+def _place_segments(
+    segments: List[Dict[str, Any]], lengths: List[float], breaks: List[bool], mode: str
+) -> List[Dict[str, Any]]:
+    """Make segment times absolute in the stitched file (items keep their own)."""
+    if mode == "items":
+        return segments
+    offsets: List[float] = []
+    t = 0.0
+    for i, length in enumerate(lengths):
+        offsets.append(t)
+        t += length
+        if i < len(lengths) - 1:
+            t += PARAGRAPH_GAP_SEC if (i < len(breaks) and breaks[i]) else SENTENCE_GAP_SEC
+    placed = []
+    for seg in segments:
+        off = offsets[seg["chunk"]] if seg["chunk"] < len(offsets) else 0.0
+        placed.append({**seg, "start": round(seg["start"] + off, 2), "end": round(seg["end"] + off, 2)})
+    return placed
+
+
+# ---------------------------------------------------------------------------
 # job worker — long renders can't live inside one HTTP request
 # ---------------------------------------------------------------------------
 
@@ -499,10 +729,32 @@ def _run_job(job: Dict[str, Any]) -> None:
         if plan["engine_used"] != plan["engine"] or plan["engine"] != job.get("engine", plan["engine"]):
             print(f"[job] {job_id} engine={plan['engine']} lang={plan['language']} used={plan['engine_used']}", flush=True)
 
+        is_ne = str(params.get("language", "")).lower() == "ne" or plan["engine"] == "chatterbox-ne"
+
+        # Expressive Nepali (opt-in): tone tags, Nepali + English
+        # code-switching, tail trimming and speed. Any failure falls back to
+        # the plain path below, so opting in can never cost a render.
+        expressive_meta: Optional[Dict[str, Any]] = None
+        if is_ne and wants_expressive(params):
+            try:
+                with _GPU_LOCK:
+                    _BUSY = True
+                    rendered, sr, expressive_meta = _render_expressive(job, chunks, plan, params)
+                    _BUSY = False
+                with _JOB_LOCK:
+                    JOBS[job_id]["progress"] = 100
+            except Exception as e:  # noqa: BLE001
+                _BUSY = False
+                rendered = []
+                expressive_meta = {"params_used": {"error": str(e)[:200]}}
+                print(f"[job] {job_id} expressive path failed, plain render instead: {e}", flush=True)
+
         # Nepali prep. Applied whenever the *request* asked for Nepali, not
         # only when a Nepali model ran: the text is Nepali either way, and
         # digits read as English numerals would be wrong on the fallback too.
-        if str(params.get("language", "")).lower() == "ne" or plan["engine"] == "chatterbox-ne":
+        if is_ne and not rendered:
+            # Tone tags are directions, never words to speak.
+            chunks = [strip_tags(c) or c for c in chunks]
             if mode == "items":
                 # One audio file per input line is the contract here, so the
                 # count must not change — expand digits, but never re-split.
@@ -512,7 +764,7 @@ def _run_job(job: Dict[str, Any]) -> None:
 
         with _GPU_LOCK:
             _BUSY = True
-            for i, text in enumerate(chunks):
+            for i, text in enumerate(chunks if not rendered else []):
                 audio, sr, _ = _generate_chunk(
                     text,
                     job["voice_id"],
@@ -565,6 +817,15 @@ def _run_job(job: Dict[str, Any]) -> None:
             "engine_used": plan["engine_used"],
             "items": items,
         }
+        if expressive_meta:
+            result["params_used"] = expressive_meta.get("params_used")
+            if expressive_meta.get("segments"):
+                result["segments"] = _place_segments(
+                    expressive_meta["segments"],
+                    [len(a) / sr for a in rendered],
+                    breaks,
+                    mode,
+                )
         with _JOB_LOCK:
             JOBS[job_id].update(result)
         if callback_url:

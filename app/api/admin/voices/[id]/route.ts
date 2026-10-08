@@ -4,7 +4,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { deleteVoice, setDefaultVoice, updateVoice } from "@/lib/server/voices";
+import { deleteVoice, getVoice, setDefaultVoice, updateVoice } from "@/lib/server/voices";
 import { isRedisConfigured } from "@/lib/server/redis";
 
 export const runtime = "nodejs";
@@ -15,6 +15,15 @@ const patchSchema = z.object({
   language: z.string().trim().min(2).max(12).optional(),
   transcript: z.string().trim().max(2000).optional(),
   makeDefault: z.literal(true).optional(),
+  /** Link other voices of the same speaker (null unlinks a slot). */
+  refs: z
+    .object({
+      en: z.string().max(120).nullable().optional(),
+      calm: z.string().max(120).nullable().optional(),
+      excited: z.string().max(120).nullable().optional(),
+      serious: z.string().max(120).nullable().optional(),
+    })
+    .optional(),
 });
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -33,6 +42,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.makeDefault) {
     if (!(await setDefaultVoice(id))) {
       return NextResponse.json({ error: "Unknown voice." }, { status: 404 });
+    }
+  }
+
+  // A link to a voice that doesn't exist would fail every job that uses it.
+  for (const [slot, ref] of Object.entries(body.refs ?? {})) {
+    if (ref && !(await getVoice(ref))) {
+      return NextResponse.json({ error: `Unknown voice for ${slot}: ${ref}` }, { status: 400 });
     }
   }
 
