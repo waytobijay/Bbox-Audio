@@ -213,11 +213,11 @@ def _stitch(parts: List[np.ndarray], sr: int, paragraph_breaks: List[bool]) -> n
 # checkpoints are mostly gated, and baking in a repo that 401s would cost
 # every Nepali job a failed download before falling back anyway.
 #
-# Known-working, ungated: officialuser/chatterbox-nepali (epoch-20 interim).
-# The better final weights (t3_mtl_nepali_final.safetensors) live in gated
-# mirrors; set VOICEFORGE_NE_FILE and HF_TOKEN once one is approved.
+# Known-working, ungated: Firoj112/chatterbox-nepali-runs, which publishes the
+# finished t3_mtl_nepali_final.safetensors as well as the interim epochs. The
+# gated mirrors hold the same final file; HF_TOKEN is only needed for those.
 NE_MODEL = os.environ.get("VOICEFORGE_NE_MODEL", "").strip()
-NE_FILE = os.environ.get("VOICEFORGE_NE_FILE", "t3_nepali_epoch_20.pt").strip()
+NE_FILE = os.environ.get("VOICEFORGE_NE_FILE", "t3_mtl_nepali_final.safetensors").strip()
 # The language token handed to the library when the Nepali engine runs. The
 # fine-tune is Devanagari and the library has no "ne", so "hi" selects the
 # right conditioning; the Nepali pronunciation comes from the T3 weights.
