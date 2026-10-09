@@ -30,9 +30,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install test dependencies
-        # fastapi only — the renderer imports it for routing. Nothing here
-        # needs torch, a GPU or ffmpeg.
-        run: pip install --quiet pytest "fastapi>=0.110" "httpx>=0.27"
+        # No torch, no GPU, no ffmpeg. numpy is needed because the expressive
+        # tests exercise the audio splicing, which is pure array work.
+        run: pip install --quiet pytest "fastapi>=0.110" "httpx>=0.27" "numpy>=1.26"
 
       - name: Compile every backend file
         # Catches syntax errors in files the tests do not import, including
