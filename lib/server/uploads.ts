@@ -16,7 +16,7 @@
 import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
 import { head } from "@vercel/blob";
 import { blobToken, deleteBlob, isBlobConfigured } from "./blob";
-import { isRedisConfigured, kvDel, kvGet, kvSet } from "./redis";
+import { isRedisConfigured, kvDel, kvGet, kvMGet, kvSet } from "./redis";
 
 const KEY = (id: string) => `vf:upload:${id}`;
 const INDEX = "vf:uploads";
@@ -287,7 +287,7 @@ export async function purgeExpiredUploads(now = Date.now()): Promise<number> {
   const ids = (await kvGet<string[]>(INDEX)) ?? [];
   if (!ids.length) return 0;
 
-  const rows = await Promise.all(ids.map((id) => kvGet<UploadRow>(KEY(id))));
+  const rows = await kvMGet<UploadRow>(ids.map(KEY));
   const keep: string[] = [];
   let deleted = 0;
 

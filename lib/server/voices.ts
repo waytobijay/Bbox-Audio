@@ -13,7 +13,7 @@
 
 import { VOICE_REF_SLOTS, type LibraryVoice, type LibraryVoiceView, type VoiceRefs } from "@/lib/types";
 import { deleteBlob, isBlobConfigured, putBlob } from "./blob";
-import { isRedisConfigured, kvDel, kvGet, kvSet } from "./redis";
+import { isRedisConfigured, kvDel, kvGet, kvMGet, kvSet, redisFailure } from "./redis";
 
 const KEY = (id: string) => `vf:voice:${id}`;
 const INDEX_KEY = "vf:voices";
@@ -39,6 +39,17 @@ export function isVoiceStorageReady(): boolean {
 
 /** Why it isn't ready, phrased as the next thing to do. */
 export function voiceStorageHint(): string | null {
+  // A failed read returns empty, so without this an outage or a blown quota
+  // reads as "you have no voices" — which is how a working library once
+  // looked permanently deleted.
+  const failed = redisFailure();
+  if (failed) {
+    return (
+      `Storage isn't responding (${failed.message}). Your data is still there — ` +
+      "this is a read failure, not a deletion. On the Upstash free tier, check " +
+      "whether the monthly command limit is exhausted."
+    );
+  }
   const missing: string[] = [];
   if (!isRedisConfigured()) missing.push("Upstash Redis");
   if (!isBlobConfigured()) missing.push("Blob");
@@ -154,7 +165,7 @@ export async function listVoices(): Promise<LibraryVoiceView[]> {
   const ids = await readIndex();
   if (!ids.length) return [];
   const [rows, defaultId] = await Promise.all([
-    Promise.all(ids.map((id) => kvGet<LibraryVoice>(KEY(id)))),
+    kvMGet<LibraryVoice>(ids.map(KEY)),
     getDefaultVoiceId(),
   ]);
   return rows

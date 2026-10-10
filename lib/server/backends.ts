@@ -18,7 +18,7 @@ import type {
   RegisteredBackend,
 } from "@/lib/types";
 import { BACKEND_PROVIDERS } from "@/lib/types";
-import { getRedis, kvDel, kvGet, kvSet } from "./redis";
+import { getRedis, kvDel, kvGet, kvMGet, kvSet } from "./redis";
 
 const KEY = (p: BackendProvider) => `vf:backend:${p}`;
 const ACTIVE_KEY = "vf:backend:active";
@@ -95,9 +95,7 @@ export async function getBackend(provider: BackendProvider): Promise<BackendView
 
 export async function listBackends(): Promise<BackendView[]> {
   const now = Date.now();
-  const rows = await Promise.all(
-    BACKEND_PROVIDERS.map((p) => kvGet<RegisteredBackend>(KEY(p)))
-  );
+  const rows = await kvMGet<RegisteredBackend>(BACKEND_PROVIDERS.map(KEY));
   return rows
     .filter((r): r is RegisteredBackend => Boolean(r))
     .map((r) => toView(r, now))

@@ -81,9 +81,34 @@ export function BackendsManager({ appUrl }: { appUrl: string }) {
 
   useEffect(() => {
     void load();
-    // A notebook can come online at any moment; poll so it appears by itself.
-    const id = setInterval(() => void load(), 15_000);
-    return () => clearInterval(id);
+    // A notebook can come online at any moment, so this still polls — but
+    // only while the tab is visible, and every 30s rather than 15s. Each
+    // refresh is a Redis read against a quota that a background tab can
+    // quietly drain.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id === null) id = setInterval(() => void load(), 30_000);
+    };
+    const stop = () => {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void load();
+        start();
+      } else {
+        stop();
+      }
+    };
+    onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   async function patch(body: unknown, label: string) {

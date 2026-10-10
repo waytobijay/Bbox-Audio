@@ -29,7 +29,7 @@ import {
 } from "./backends";
 import { syncVoiceToBackend } from "./gateway";
 import { deleteBlob, putBlob } from "./blob";
-import { getRedis, kvDel, kvGet, kvSet } from "./redis";
+import { getRedis, kvDel, kvGet, kvMGet, kvSet } from "./redis";
 import { getVoice } from "./voices";
 import { getSettings } from "./redis";
 
@@ -107,7 +107,7 @@ export async function saveJob(job: Job): Promise<Job> {
 
 export async function listJobs(limit = 50): Promise<Job[]> {
   const ids = ((await kvGet<string[]>(INDEX)) ?? []).slice(0, limit);
-  const rows = await Promise.all(ids.map((id) => kvGet<Job>(KEY(id))));
+  const rows = await kvMGet<Job>(ids.map(KEY));
   return rows.filter((r): r is Job => Boolean(r));
 }
 

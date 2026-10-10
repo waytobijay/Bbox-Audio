@@ -9,7 +9,7 @@
  * than a scan-and-compare over every key.
  */
 
-import { kvDel, kvGet, kvSet, getRedis } from "./redis";
+import { kvDel, kvGet, kvMGet, kvSet, getRedis } from "./redis";
 
 const BY_HASH = (hash: string) => `vf:apikey:h:${hash}`;
 const BY_ID = (id: string) => `vf:apikey:${id}`;
@@ -72,10 +72,8 @@ export async function listApiKeys(): Promise<ApiKeyView[]> {
   const ids = await readIndex();
   if (!ids.length) return [];
   const month = currentMonth();
-  const rows = await Promise.all(ids.map((id) => kvGet<ApiKeyRecord>(BY_ID(id))));
-  const usage = await Promise.all(
-    ids.map((id) => kvGet<number>(USAGE(id, month)))
-  );
+  const rows = await kvMGet<ApiKeyRecord>(ids.map(BY_ID));
+  const usage = await kvMGet<number>(ids.map((id) => USAGE(id, month)));
   return rows
     .map((r, i) => (r ? toView(r, usage[i] ?? 0) : null))
     .filter((r): r is ApiKeyView => Boolean(r))

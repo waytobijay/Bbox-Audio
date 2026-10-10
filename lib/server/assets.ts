@@ -14,7 +14,7 @@
 import type { Asset, AssetKind } from "@/lib/types";
 import { ASSET_KINDS } from "@/lib/types";
 import { deleteBlob, isBlobConfigured } from "./blob";
-import { isRedisConfigured, kvDel, kvGet, kvSet } from "./redis";
+import { isRedisConfigured, kvDel, kvGet, kvMGet, kvSet } from "./redis";
 
 const KEY = (id: string) => `vf:asset:${id}`;
 const INDEX = "vf:assets";
@@ -126,7 +126,7 @@ async function readIndex(): Promise<string[]> {
 export async function listAssets(kind?: AssetKind): Promise<Asset[]> {
   const ids = await readIndex();
   if (!ids.length) return [];
-  const rows = await Promise.all(ids.map((id) => kvGet<Asset>(KEY(id))));
+  const rows = await kvMGet<Asset>(ids.map(KEY));
   return rows
     .filter((r): r is Asset => Boolean(r) && (!kind || r!.kind === kind))
     .sort((a, b) => b.createdAt - a.createdAt);

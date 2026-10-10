@@ -60,8 +60,34 @@ export function JobsList() {
 
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), 10_000);
-    return () => clearInterval(id);
+    // Polling only while someone is looking. Each refresh is a Redis read,
+    // and a tab left open overnight used to spend tens of thousands of
+    // commands a day showing a list nobody was watching — enough on its own
+    // to exhaust an Upstash free tier.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id === null) id = setInterval(() => void load(), 30_000);
+    };
+    const stop = () => {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void load();
+        start();
+      } else {
+        stop();
+      }
+    };
+    onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   async function remove(id: string) {
