@@ -148,3 +148,29 @@ describe("normalizeText — punctuation", () => {
     expect(normalizeText("too   many    spaces")).toBe("too many spaces");
   });
 });
+
+describe("spoken forms", () => {
+  it("spells initials the model would otherwise read as words", () => {
+    expect(normalizeText("AI is changing IT.")).toBe("ay eye is changing eye tee.");
+    expect(normalizeText("Use A.I. wisely")).toBe("Use ay eye wisely");
+    expect(normalizeText("Two AIs and AI's future")).toBe("Two ay eyes and ay eye's future");
+  });
+
+  it("leaves the ordinary words alone", () => {
+    expect(normalizeText("Is it ready? Fix it.")).toBe("Is it ready? Fix it.");
+    expect(normalizeText("AIM for the CPU and NASA")).toBe("AIM for the CPU and NASA");
+  });
+
+  it("reads 365 in a product name as three sixty-five", () => {
+    expect(normalizeText("M365 and Microsoft 365")).toBe(
+      "em three sixty-five and Microsoft three sixty-five"
+    );
+    expect(normalizeText("Office 365 or O365")).toBe("Office three sixty-five or oh three sixty-five");
+    // A plain count is still a count.
+    expect(normalizeText("365 days")).toBe("three hundred sixty-five days");
+  });
+
+  it("only applies to English", () => {
+    expect(normalizeText("AI र M365", "ne")).toBe("AI र M365");
+  });
+});

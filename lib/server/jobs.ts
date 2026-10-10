@@ -330,7 +330,13 @@ export async function createAndDispatchJob(
 
   // Linked voices (English / tone references) travel with the job only when
   // the request opted into expressive narration — nobody else pays for them.
-  const wantsRefs = p.code_switch === true || p.prosody_tags === true;
+  // Nepali counts as opting in unless it said no: the backend switches models
+  // for English words by itself, and needs the English reference to do it in
+  // the right accent.
+  const wantsRefs =
+    p.code_switch === true ||
+    p.prosody_tags === true ||
+    (synth.engine === "chatterbox-ne" && p.code_switch !== false);
   const voiceRefs = wantsRefs ? await resolveVoiceRefs(voice) : undefined;
 
   const body = {

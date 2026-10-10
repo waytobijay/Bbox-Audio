@@ -17,7 +17,7 @@ import {
   type StudioVoice,
 } from "./gateway";
 import { chunkScript } from "./chunker";
-import { DEFAULT_PARAMS, MAX_ATTEMPTS } from "./config";
+import { DEFAULT_PARAMS, LANGUAGES, MAX_ATTEMPTS } from "./config";
 import * as db from "./db";
 import { toast } from "./toast";
 import type {
@@ -412,6 +412,19 @@ export const useApp = create<AppState>((set, get) => {
 
     setActiveVoice(id: string | null) {
       set((s) => ({ activeVoiceId: id, project: { ...s.project, voiceId: id ?? "" } }));
+      // A voice brings its language with it. The Language setting used to stay
+      // wherever it was, so picking the English voice after a Nepali test kept
+      // sending English text to the Nepali model. It can still be changed by
+      // hand afterwards for the rare cross-language read.
+      const language = get().voices.find((v) => v.id === id)?.language;
+      if (
+        language &&
+        language !== get().project.params.language &&
+        LANGUAGES.some((l) => l.code === language) &&
+        !get().queue.running
+      ) {
+        get().setParams({ language });
+      }
       schedulePersist();
     },
 

@@ -11,10 +11,10 @@
  *    Colab restart" true, with no re-cloning anywhere in the UI.
  */
 
-import { resolveSynthesis } from "@/lib/languageProfiles";
+import { languageForText, resolveSynthesis } from "@/lib/languageProfiles";
 import type { LibraryVoice, ModelId } from "@/lib/types";
 import { backendHeaders, recordJobUsage, resolveBackend, updateBackend } from "./backends";
-import { resolveVoice } from "./voices";
+import { getVoice, resolveVoice } from "./voices";
 
 /** Vercel caps a function at 60 s; stay inside it with room to answer. */
 const GENERATE_TIMEOUT_MS = 52_000;
@@ -124,8 +124,12 @@ export async function gatewayGenerate(
   // payload and skip this, so a Nepali voice worked through a job and failed
   // here with "Unsupported language_id" — the one model that can say it was
   // never asked for.
+  // The script of the text outranks the Language setting — see
+  // languageForText. Without this an English script narrated while the studio
+  // was still set to Nepali went through the Nepali checkpoint and came back
+  // mostly silent, with no error anywhere.
   const synth = resolveSynthesis({
-    language: input.language ?? voice.language,
+    language: languageForText(input.text, input.language, voice.language),
     voice: voice.synth,
     request: {
       exaggeration: input.exaggeration,
@@ -134,9 +138,29 @@ export async function gatewayGenerate(
     },
   });
 
+  // Mixed Nepali and English is spoken by two models in one voice. The
+  // English half sounds right only with the linked English clip, so it goes
+  // along whenever the Nepali engine is in play.
+  const voiceRefs: Record<string, unknown> = {};
+  if (synth.engine === "chatterbox-ne") {
+    for (const [slot, refId] of Object.entries(voice.refs ?? {})) {
+      if (!refId || refId === voice.id) continue;
+      const ref = await getVoice(refId);
+      if (ref) {
+        voiceRefs[slot] = {
+          voice_id: ref.id,
+          audio_url: ref.audioUrl,
+          transcript: ref.transcript,
+          language: ref.language,
+        };
+      }
+    }
+  }
+
   const payload = {
     text: input.text,
     voice_id: voice.id,
+    ...(Object.keys(voiceRefs).length ? { voice_refs: voiceRefs } : {}),
     model: input.model ?? "chatterbox",
     seed: input.seed ?? 0,
     language: synth.modelLanguage,

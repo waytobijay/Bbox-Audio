@@ -87,6 +87,43 @@ export function needsOwnEngine(language?: string | null): boolean {
   return !!p && p.engine !== DEFAULT_ENGINE;
 }
 
+/** Languages written in Devanagari that a model here can actually speak. */
+const DEVANAGARI_LANGUAGES = new Set(["ne", "hi"]);
+
+/**
+ * The language a piece of text should really be spoken in.
+ *
+ * The studio's Language setting belongs to the project, not the voice, so it
+ * is easy to leave on Nepali and then narrate an English script — or the
+ * reverse. Neither model can read the other's script: English through the
+ * Nepali checkpoint comes out as a few stray words and long silences, and
+ * Devanagari through the English model is silence outright. The text itself
+ * is unambiguous about which it is, so it wins over the setting.
+ *
+ * Only an outright script mismatch is corrected. Mixed text keeps the chosen
+ * language, and so does every language that shares Latin script — nothing
+ * here can tell French from English, and it does not try.
+ */
+export function languageForText(
+  text: string,
+  language?: string | null,
+  voiceLanguage?: string | null
+): string {
+  const chosen = (language || voiceLanguage || "en").toLowerCase();
+  const voice = (voiceLanguage || "").toLowerCase();
+  const deva = (text.match(/[ऀ-ॿ]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+
+  if (DEVANAGARI_LANGUAGES.has(chosen)) {
+    if (deva === 0 && latin > 0) {
+      return voice && !DEVANAGARI_LANGUAGES.has(voice) ? voice : "en";
+    }
+    return chosen;
+  }
+  if (deva > latin) return DEVANAGARI_LANGUAGES.has(voice) ? voice : "ne";
+  return chosen;
+}
+
 /**
  * Work out what to ask the model for.
  *

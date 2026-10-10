@@ -3,6 +3,7 @@ import { DEFAULT_PARAMS, LANGUAGES } from "../config";
 import {
   DEFAULT_ENGINE,
   LANGUAGE_PROFILES,
+  languageForText,
   needsOwnEngine,
   profileFor,
   resolveSynthesis,
@@ -147,5 +148,34 @@ describe("resolution order — request beats voice beats profile beats default",
 
   it("accepts a genuine zero, which is not the same as absent", () => {
     expect(resolveSynthesis({ language: "en", request: { exaggeration: 0 } }).exaggeration).toBe(0);
+  });
+});
+
+describe("languageForText", () => {
+  it("keeps the chosen language when the script matches", () => {
+    expect(languageForText("Hello everyone!", "en", "en")).toBe("en");
+    expect(languageForText("नमस्ते सबैलाई", "ne", "ne")).toBe("ne");
+    expect(languageForText("Bonjour tout le monde", "fr", "en")).toBe("fr");
+  });
+
+  it("does not send English text to the Nepali model", () => {
+    expect(languageForText("Hello everyone!", "ne", "en")).toBe("en");
+    // A Nepali voice reading an all-English line still needs the English model.
+    expect(languageForText("Thank you, and have a great day!", "ne", "ne")).toBe("en");
+  });
+
+  it("does not send Devanagari to a model that cannot read it", () => {
+    expect(languageForText("नमस्ते सबैलाई", "en", "ne")).toBe("ne");
+    expect(languageForText("नमस्ते सबैलाई", "en", "hi")).toBe("hi");
+    expect(languageForText("नमस्ते सबैलाई", "en", "en")).toBe("ne");
+  });
+
+  it("leaves mixed Nepali and English with the Nepali engine", () => {
+    expect(languageForText("मेरो laptop को password", "ne", "ne")).toBe("ne");
+  });
+
+  it("falls back to the voice, then English, when nothing was chosen", () => {
+    expect(languageForText("Hello", undefined, "fr")).toBe("fr");
+    expect(languageForText("Hello", undefined, undefined)).toBe("en");
   });
 });

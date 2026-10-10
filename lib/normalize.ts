@@ -281,6 +281,52 @@ export function expandAbbreviations(input: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// spoken forms: acronyms and product numbers
+// ---------------------------------------------------------------------------
+
+/**
+ * The multilingual model lowercases its input, so "AI" reaches it as "ai" and
+ * "IT" as "it" — ordinary words, read as words. The capitals that marked them
+ * as initials are gone before the model sees them, which is why no amount of
+ * prompt wording upstream fixes it. The only reliable form is the letter
+ * names written out.
+ *
+ * Deliberately a short list of initialisms that turn into a real word or a
+ * mumble when lowercased. Ones the model already spells (CPU, USB, PDF) are
+ * left alone, and so is anything that is said as a word (NASA, RAM).
+ */
+const LETTER_NAMES: Record<string, string> = {
+  A: "ay", B: "bee", C: "see", D: "dee", E: "ee", F: "eff", G: "jee",
+  H: "aitch", I: "eye", J: "jay", K: "kay", L: "el", M: "em", N: "en",
+  O: "oh", P: "pee", Q: "cue", R: "ar", S: "ess", T: "tee", U: "you",
+  V: "vee", W: "double-you", X: "ex", Y: "why", Z: "zee",
+};
+
+const SPELLED_INITIALISMS = ["AI", "IT", "IP", "UI", "UX", "OS"];
+
+function spellLetters(letters: string): string {
+  return [...letters].map((c) => LETTER_NAMES[c] ?? c).join(" ");
+}
+
+export function expandSpokenForms(input: string): string {
+  let s = input;
+
+  // "365" in a product name is said "three sixty-five", never "three hundred
+  // sixty-five". Runs before number expansion, which would get there first.
+  s = s.replace(/\b(Microsoft|Office|Dynamics|Copilot|Outlook)(\s+)365\b/g, "$1$2three sixty-five");
+  s = s.replace(/\b([MO])365\b/g, (_m, letter: string) => `${LETTER_NAMES[letter]} three sixty-five`);
+
+  // Dotted forms first ("A.I."), so the plain rule below never sees the dots.
+  s = s.replace(/\b([A-Z])\.([A-Z])\.(?=\s|[,;:!?)]|$)/g, (_m, a: string, b: string) => spellLetters(a + b));
+
+  // Case-sensitive on purpose: "it" and "os" are words, "IT" and "OS" are not.
+  s = s.replace(new RegExp(String.raw`\b(${SPELLED_INITIALISMS.join("|")})(?=s\b|'s\b|\b)`, "g"),
+    (_m, letters: string) => spellLetters(letters));
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
 // full pipeline
 // ---------------------------------------------------------------------------
 
@@ -316,6 +362,7 @@ export function normalizeText(
   s = stripMarkdown(s);
   s = asciiPunctuation(s);
   if (language.startsWith("en")) {
+    s = expandSpokenForms(s); // before numbers so "M365" keeps its own reading
     s = expandAbbreviations(s); // before numbers so "No. 5" → "number 5" → words
     s = expandNumbers(s);
   }
