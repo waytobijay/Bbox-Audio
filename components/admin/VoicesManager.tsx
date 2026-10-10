@@ -71,7 +71,13 @@ export function VoicesManager() {
 
   return (
     <div className="flex flex-col gap-5">
-      {!data.storageReady ? (
+      {/*
+        Driven by the hint, not by storageReady. storageReady only reports
+        whether credentials exist, so a configured-but-failing Redis — a blown
+        quota, an outage — rendered the ordinary empty state and looked like
+        "you have no voices". The hint is set in both cases.
+      */}
+      {data.hint ? (
         <div className="flex gap-3 rounded-2xl border border-live/30 bg-liveSoft px-5 py-4">
           <IconAlert className="mt-0.5 h-4 w-4 shrink-0 text-live" />
           <p className="text-[13px] leading-relaxed text-ink">

@@ -240,7 +240,16 @@ export async function createVoice(input: CreateVoiceInput): Promise<LibraryVoice
     updatedAt: now,
   };
 
-  await kvSet(KEY(id), row);
+  // kvSet swallows its errors and returns false, so an unreachable Redis
+  // used to produce a cheerful 201 with nothing stored — the clip landed in
+  // Blob, the voice did not exist, and the list stayed empty with no error
+  // anywhere. A write that did not land is a failure and must say so.
+  if (!(await kvSet(KEY(id), row))) {
+    throw new VoiceStorageError(
+      "Saved the clip but couldn't record the voice — storage rejected the write.",
+      503
+    );
+  }
   await writeIndex([id, ...(await readIndex()).filter((x) => x !== id)]);
   // First voice becomes the default, so the API works without another step.
   if (!(await getDefaultVoiceId())) await kvSet(DEFAULT_KEY, id);
