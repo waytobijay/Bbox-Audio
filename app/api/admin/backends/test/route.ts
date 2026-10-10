@@ -43,7 +43,12 @@ export async function POST(req: NextRequest) {
   try {
     const res = await fetch(`${backend.url}/health`, {
       headers: backendHeaders(),
-      signal: AbortSignal.timeout(15_000),
+      // A notebook answers /health instantly, but Modal scales to zero and a
+      // cold GPU container spends ~50s loading models before it replies. At
+      // 15s this test could never pass against a cold Modal, and reported a
+      // perfectly healthy backend as unreachable. Kept under the route's own
+      // 60s ceiling so the failure is ours to word, not Vercel's.
+      signal: AbortSignal.timeout(55_000),
     });
     if (!res.ok) {
       const why = `Health check returned ${res.status}.`;
@@ -60,7 +65,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const timedOut = e instanceof Error && e.name === "TimeoutError";
     const error = timedOut
-      ? "Health check timed out. The notebook may have stopped."
+      ? "Health check timed out after 55s. A notebook that long gone has stopped; a cold Modal container can need about a minute on its first wake, so try once more."
       : "Couldn't reach the backend. Is the notebook still running?";
     // Remembered on the row, so the next person to look at the card sees it
     // without having to press Test themselves.
