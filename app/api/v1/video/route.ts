@@ -89,6 +89,16 @@ const schema = z.object({
   music: z.boolean().default(true),
   music_tag: z.string().max(40).optional(),
   sfx: z.boolean().default(false),
+  /**
+   * Extra sound effects at exact times, e.g. a whoosh on every step change.
+   * The caller knows the narration lengths, so it knows the scene starts;
+   * each tag resolves to one sfx asset with that tag in the library, and a
+   * tag with no asset is skipped rather than failing the render.
+   */
+  sfx_cues: z
+    .array(z.object({ at: z.number().min(0).max(7200), tag: z.string().min(1).max(40) }))
+    .max(120)
+    .optional(),
   banner: z.boolean().default(true),
   callback_url: z.string().url().max(2000).optional(),
 });
@@ -142,6 +152,7 @@ export async function POST(req: Request) {
         music: body.music,
         musicTag: body.music_tag,
         sfx: body.sfx,
+        sfxCues: body.sfx_cues,
         banner: body.banner,
         source: auth.key.id,
         callbackUrl: body.callback_url,

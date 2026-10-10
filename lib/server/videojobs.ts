@@ -35,6 +35,8 @@ export interface VideoJobInput {
   music: boolean;
   musicTag?: string;
   sfx: boolean;
+  /** Extra sound effects at exact times; each tag resolves to one library asset. */
+  sfxCues?: Array<{ at: number; tag: string }>;
   banner: boolean;
   source: string;
   callbackUrl?: string;
@@ -69,6 +71,15 @@ async function chooseAssets(input: VideoJobInput, totalSeconds: number) {
     const pick = (a: Asset[], at: number) => a[0] && chosen.sfx.push({ url: a[0].url, at });
     pick(open, 0);
     pick(close, Math.max(totalSeconds - 3, 0));
+  }
+  if (input.sfxCues?.length) {
+    // One asset per tag, so every step change makes the same sound.
+    const byTag = new Map<string, string | undefined>();
+    for (const cue of input.sfxCues) {
+      if (!byTag.has(cue.tag)) byTag.set(cue.tag, (await pickAssets("sfx", 1, cue.tag))[0]?.url);
+      const url = byTag.get(cue.tag);
+      if (url) chosen.sfx.push({ url, at: cue.at });
+    }
   }
 
   return chosen;
