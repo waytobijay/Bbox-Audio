@@ -23,8 +23,16 @@ import { getRedis, kvDel, kvGet, kvMGet, kvSet } from "./redis";
 const KEY = (p: BackendProvider) => `vf:backend:${p}`;
 const ACTIVE_KEY = "vf:backend:active";
 
-/** Three missed 60 s heartbeats. */
-export const HEARTBEAT_SECONDS = 60;
+/**
+ * Three missed heartbeats marks a backend offline.
+ *
+ * 150s rather than 60s because each beat is two Redis commands, and on the
+ * Upstash free tier a notebook left running overnight spent ~2,900 commands
+ * a day doing nothing but saying it was alive. The cost is noticing a dead
+ * notebook in 7 minutes instead of 3 — acceptable now that dispatch fails
+ * over to the next backend by itself.
+ */
+export const HEARTBEAT_SECONDS = 150;
 export const OFFLINE_AFTER_SECONDS = HEARTBEAT_SECONDS * 3;
 
 /**
